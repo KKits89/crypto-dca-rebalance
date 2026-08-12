@@ -1,14 +1,15 @@
 import streamlit as st
 import yfinance as yf
-import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
 import os
 from datetime import datetime
 
 # --- ΡΥΘΜΙΣΗ ΣΕΛΙΔΑΣ ---
-st.set_page_config(layout="wide", page_title="Crypto DCA Dashboard")
+st.set_page_config(layout="wide", page_title="Crypto DCA Pro Dashboard")
 
-st.title("🚀 Crypto DCA & Smart Buy Dashboard")
+st.title("🚀 Crypto DCA & Smart Buy Pro Dashboard")
 
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
 st.sidebar.title("🤖 DCA Settings")
@@ -68,7 +69,6 @@ def load_portfolio():
     return summary
 
 portfolio_data = load_portfolio()
-allowed_deviation = 0.04
 
 # Συνάρτηση υπολογισμού RSI
 def get_rsi(series, period=14):
@@ -90,7 +90,6 @@ current_values = {}
 total_current_portfolio = 0
 total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values())
 
-# Υπολογισμοί αγοράς
 for asset, data in portfolio_data.items():
     try:
         hist = yf.Ticker(data["ticker"]).history(period="100d")
@@ -160,80 +159,74 @@ for asset, data in portfolio_data.items():
 if total_smart_weight == 0:
     total_smart_weight = 1.0
 
-# --- ΚΑΤΑΓΡΑΦΗ ΙΣΤΟΡΙΚΟΥ ---
-history_file = "portfolio_history.csv"
-now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-new_record = pd.DataFrame([{"Datetime": now_str, "Total_Value_USD": total_current_portfolio, "Total_PnL_USD": total_pnl_usd}])
-if os.path.exists(history_file):
-    history_df = pd.read_csv(history_file)
-    history_df = pd.concat([history_df, new_record], ignore_index=True)
-else:
-    history_df = new_record
-history_df.to_csv(history_file, index=False)
+# --- ΔΗΜΙΟΥΡΓΙΑ TABS ΓΙΑ ΩΡΑΙΟΤΕΡΟ UI ---
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Smart Buy", "📈 Interactive Charts", "📋 Transactions History"])
 
-# --- ΕΜΦΑΝΙΣΗ METRICS ΣΤΟ STREAMLIT ---
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Portfolio Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
-col2.metric("Total PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}%")
-col3.metric("New Cash Allocation", f"${new_cash_to_invest:,.2f}")
+with tab1:
+    # --- TOP METRICS ---
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
+    col2.metric("Total PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}%")
+    col3.metric("New Cash Allocation", f"${new_cash_to_invest:,.2f}")
 
-st.markdown("---")
+    st.markdown("---")
+    st.subheader("📊 Execution Plan & Metrics Table")
 
-# --- ΠΙΝΑΚΑΣ ΕΚΤΕΛΕΣΗΣ (DATA TABLE) ---
-st.subheader("📊 Execution Plan & Metrics")
-table_data = []
-for asset, data in portfolio_data.items():
-    stats = current_values[asset]
-    strict_share = strict_allocations[asset] / total_strict_weight
-    strict_buy = new_cash_to_invest * strict_share
-    smart_share = smart_allocations[asset] / total_smart_weight
-    smart_buy = new_cash_to_invest * smart_share
-    pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
+    table_data = []
+    for asset, data in portfolio_data.items():
+        stats = current_values[asset]
+        strict_share = strict_allocations[asset] / total_strict_weight
+        strict_buy = new_cash_to_invest * strict_share
+        smart_share = smart_allocations[asset] / total_smart_weight
+        smart_buy = new_cash_to_invest * smart_share
+        pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
 
-    table_data.append({
-        "Asset": asset,
-        "Avg Price": f"${stats['avg_price']:.2f}",
-        "Curr Price": f"${stats['price']:.2f}",
-        "SMA 50": f"${stats['sma_50']:.2f}",
-        "RSI": f"{stats['rsi']:.1f}",
-        "PnL": pnl_str,
-        "Strict Buy": f"${strict_buy:.2f}",
-        "Smart Buy": f"${smart_buy:.2f}"
-    })
+        table_data.append({
+            "Asset": asset,
+            "Avg Price": f"${stats['avg_price']:.2f}",
+            "Curr Price": f"${stats['price']:.2f}",
+            "SMA 50": f"${stats['sma_50']:.2f}",
+            "RSI": f"{stats['rsi']:.1f}",
+            "PnL": pnl_str,
+            "Strict Buy": f"${strict_buy:.2f}",
+            "Smart Buy": f"${smart_buy:.2f}"
+        })
 
-st.dataframe(pd.DataFrame(table_data), use_container_width=True)
+    st.dataframe(pd.DataFrame(table_data), use_container_width=True)
 
-# --- ΓΡΑΦΗΜΑΤΑ (MATPLOTLIB) ---
-plt.style.use('dark_background')
-fig = plt.figure(figsize=(18, 8), facecolor='#121212')
+with tab2:
+    st.subheader("📈 Interactive Portfolio Charts (Plotly)")
+    
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        # Πίτα με Plotly
+        fig_pie = px.pie(
+            names=list(current_values.keys()),
+            values=[info["current_val"] for info in current_values.values()],
+            title="Portfolio Distribution",
+            hole=0.4
+        )
+        fig_pie.update_layout(paper_bgcolor="#1e1e1e", font_color="white")
+        st.plotly_chart(fig_pie, use_container_width=True)
+        
+    with col_chart2:
+        # Bar chart PnL με Plotly
+        assets_list = list(current_values.keys())
+        pnl_values = [info["pnl_usd"] for info in current_values.values()]
+        colors = ['#2ecc71' if v >= 0 else '#ff4757' for v in pnl_values]
+        
+        fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
+        fig_bar.update_layout(
+            title="PnL per Coin ($)",
+            paper_bgcolor="#1e1e1e",
+            plot_bgcolor="#1e1e1e",
+            font_color="white"
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
 
-ax1 = fig.add_subplot(1, 2, 1)
-ax2 = fig.add_subplot(1, 2, 2)
-
-for ax in [ax1, ax2]:
-    ax.set_facecolor('#1e1e1e')
-    ax.tick_params(colors='white', labelsize=10)
-    ax.xaxis.label.set_color('white')
-    ax.yaxis.label.set_color('white')
-
-# 1ο Γραφικό: Πίτα Κατανομής
-labels = list(current_values.keys())
-sizes = [info["current_val"] for info in current_values.values()]
-neon_colors = ['#f39c12', '#3498db', '#9b59b6', '#e67e22', '#62ffc8']
-ax1.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=140, colors=neon_colors, textprops=dict(color="white", fontsize=11))
-ax1.set_title("Portfolio Distribution", color='white', fontweight='bold', fontsize=12)
-
-# 2ο Γραφικό: PnL Bar Chart
-assets_list = list(current_values.keys())
-pnl_values = [info["pnl_usd"] for info in current_values.values()]
-bar_colors = ['#2ecc71' if v >= 0 else '#ff4757' for v in pnl_values]
-ax2.bar(assets_list, pnl_values, color=bar_colors, width=0.55)
-ax2.axhline(0, color='#7f8c8d', linewidth=1, linestyle='--')
-ax2.set_title("PnL per Coin ($)", color='white', fontweight='bold', fontsize=12)
-ax2.set_ylabel("USD ($)", color='white')
-ax2.grid(axis='y', color='#333333', linestyle=':', alpha=0.7)
-
-plt.tight_layout()
-
-# Εμφάνιση γραφήματος στο Streamlit
-st.pyplot(fig)
+with tab3:
+    st.subheader("📋 Raw Transactions File")
+    if os.path.exists(history_csv):
+        raw_df = pd.read_csv(history_csv)
+        st.dataframe(raw_df, use_container_width=True)
