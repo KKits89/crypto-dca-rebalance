@@ -13,7 +13,9 @@ st.title("🚀 Crypto DCA & Smart Buy Pro Dashboard")
 
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
 st.sidebar.title("🤖 DCA Settings")
-new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=50.0, step=10.0)
+
+# ΑΛΛΑΓΗ: value=0.0 για να ξεκινάει άδειο
+new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📝 Add New Transaction")
