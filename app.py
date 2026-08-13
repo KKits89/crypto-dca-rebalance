@@ -166,7 +166,7 @@ with tab1:
     # --- TOP METRICS ---
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
-    col2.metric("Total PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}%")
+    col2.metric("Total PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}% ({pnl_eur:+,.2f}€)")
     col3.metric("New Cash Allocation", f"${new_cash_to_invest:,.2f}")
 
     st.markdown("---")
@@ -192,7 +192,9 @@ with tab1:
             "Smart Buy": f"${smart_buy:.2f}"
         })
 
-    st.dataframe(pd.DataFrame(table_data), use_container_width=True)
+    df_metrics = pd.DataFrame(table_data)
+    df_metrics.index = df_metrics.index + 1
+    st.dataframe(df_metrics, use_container_width=True)
 
 with tab2:
     st.subheader("📈 Interactive Portfolio Charts (Plotly)")
@@ -200,7 +202,6 @@ with tab2:
     col_chart1, col_chart2 = st.columns(2)
     
     with col_chart1:
-        # Πίτα με Plotly
         fig_pie = px.pie(
             names=list(current_values.keys()),
             values=[info["current_val"] for info in current_values.values()],
@@ -211,7 +212,6 @@ with tab2:
         st.plotly_chart(fig_pie, use_container_width=True)
         
     with col_chart2:
-        # Bar chart PnL με Plotly
         assets_list = list(current_values.keys())
         pnl_values = [info["pnl_usd"] for info in current_values.values()]
         colors = ['#2ecc71' if v >= 0 else '#ff4757' for v in pnl_values]
@@ -229,4 +229,5 @@ with tab3:
     st.subheader("📋 Raw Transactions File")
     if os.path.exists(history_csv):
         raw_df = pd.read_csv(history_csv)
+        raw_df.index = raw_df.index + 1
         st.dataframe(raw_df, use_container_width=True)
