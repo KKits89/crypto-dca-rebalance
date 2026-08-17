@@ -3,6 +3,7 @@ import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
+import sqlite3
 import os
 from datetime import datetime
 
@@ -11,48 +12,100 @@ st.set_page_config(layout="wide", page_title="Crypto DCA Pro Dashboard")
 
 st.title("🚀 Crypto DCA & Smart Buy Pro Dashboard")
 
+# --- DATABASE SETUP (SQLITE) ---
+DB_FILE = "portfolio.db"
+HISTORY_CSV = "transactions.csv"
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            asset TEXT,
+            amount REAL,
+            usd_cost REAL
+        )
+    ''')
+    conn.commit()
+    
+    # Αν η βάση είναι άδειη αλλά υπάρχει το παλιό CSV, κάνε migration αυτόματα!
+    cursor.execute("SELECT COUNT(*) FROM transactions")
+    count = cursor.fetchone()[0]
+    if count == 0 and os.path.exists(HISTORY_CSV):
+        try:
+            df_old = pd.read_csv(HISTORY_CSV)
+            for _, row in df_old.iterrows():
+                cursor.execute(
+                    "INSERT INTO transactions (date, asset, amount, usd_cost) VALUES (?, ?, ?, ?)",
+                    (row['Date'], row['Asset'], row['Amount'], row['USD_Cost'])
+                )
+            conn.commit()
+        except:
+            pass
+            
+    # Αν η βάση είναι εντελώς άδειη και δεν υπάρχει CSV, βάλε τα αρχικά δεδομένα
+    cursor.execute("SELECT COUNT(*) FROM transactions")
+    if cursor.fetchone()[0] == 0:
+        initial_data = [
+            ("2026-08-12", "BTC", 0.0201469, 1377.33),
+            ("2026-08-12", "ETH", 0.258, 442.73),
+            ("2026-08-12", "SOL", 4.5566, 323.13),
+            ("2026-08-12", "ZEC", 0.2061, 104.18),
+            ("2026-08-12", "HYPE", 3.17, 192.48)
+        ]
+        cursor.executemany("INSERT INTO transactions (date, asset, amount, usd_cost) VALUES (?, ?, ?, ?)", initial_data)
+        conn.commit()
+        
+    conn.close()
+
+init_db()
+
+# Συνάρτηση ανάκτησης τελευταίας ημερομηνίας
+def get_latest_transaction_date():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(date) FROM transactions")
+    res = cursor.fetchone()
+    conn.close()
+    return res[0] if res and res[0] else "Καμία"
+
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
 st.sidebar.title("🤖 DCA Settings")
 
-# ΑΛΛΑΓΗ: value=0.0 για να ξεκινάει άδειο
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📝 Add New Transaction")
+
+latest_date = get_latest_transaction_date()
+st.sidebar.info(f"📅 Τελευταία συναλλαγή: **{latest_date}**")
+
 asset_input = st.sidebar.text_input("Asset (π.χ. BTC)", "BTC").upper()
 amount_input = st.sidebar.number_input("Amount Bought", value=0.0, format="%.6f")
 cost_input = st.sidebar.number_input("USD Cost ($)", value=0.0, format="%.2f")
 
-history_csv = "transactions.csv"
-
 if st.sidebar.button("Save Transaction"):
     if amount_input > 0 and cost_input > 0:
         t_date = datetime.now().strftime("%Y-%m-%d")
-        new_row = pd.DataFrame([[t_date, asset_input, amount_input, cost_input]], columns=['Date', 'Asset', 'Amount', 'USD_Cost'])
-        
-        if not os.path.exists(history_csv):
-            new_row.to_csv(history_csv, index=False)
-        else:
-            new_row.to_csv(history_csv, mode='a', header=False, index=False)
-        st.sidebar.success(f"Καταγράφηκε: {amount_input} {asset_input}!")
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO transactions (date, asset, amount, usd_cost) VALUES (?, ?, ?, ?)",
+                       (t_date, asset_input, amount_input, cost_input))
+        conn.commit()
+        conn.close()
+        st.sidebar.success(f"Καταγράφηκε στη βάση: {amount_input} {asset_input}!")
+        st.rerun()
     else:
         st.sidebar.error("Συμπλήρωσε ποσό και κόστος μεγαλύτερο από 0.")
 
-# --- ΑΥΤΟΜΑΤΗ ΔΗΜΙΟΥΡΓΙΑ CSV ΑΝ ΔΕΝ ΥΠΑΡΧΕΙ ---
-if not os.path.exists(history_csv):
-    initial_csv_content = """Date,Asset,Amount,USD_Cost
-2026-08-12,BTC,0.0201469,1377.33
-2026-08-12,ETH,0.258,442.73
-2026-08-12,SOL,4.5566,323.13
-2026-08-12,ZEC,0.2061,104.18
-2026-08-12,HYPE,3.17,192.48
-"""
-    with open(history_csv, "w") as f:
-        f.write(initial_csv_content)
-
-# --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΟ CSV ---
+# --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΗ ΒΑΣΗ ---
 def load_portfolio():
-    df = pd.read_csv(history_csv)
+    conn = sqlite3.connect(DB_FILE)
+    df = pd.read_sql_query("SELECT * FROM transactions", conn)
+    conn.close()
+    
     summary = df.groupby('Asset').agg({'Amount': 'sum', 'USD_Cost': 'sum'}).to_dict('index')
 
     settings = {
@@ -79,6 +132,13 @@ def get_rsi(series, period=14):
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
+
+# Νέα συνάρτηση υπολογισμού New Average Price
+def calculate_new_avg(old_cost, old_amount, new_money, current_price):
+    if new_money <= 0 or current_price <= 0:
+        return old_cost / old_amount if old_amount > 0 else 0
+    new_amount = new_money / current_price
+    return (old_cost + new_money) / (old_amount + new_amount)
 
 # Λήψη ισοτιμίας USD σε EUR
 try:
@@ -161,11 +221,10 @@ for asset, data in portfolio_data.items():
 if total_smart_weight == 0:
     total_smart_weight = 1.0
 
-# --- ΔΗΜΙΟΥΡΓΙΑ TABS ΓΙΑ ΩΡΑΙΟΤΕΡΟ UI ---
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard & Smart Buy", "📈 Interactive Charts", "📋 Transactions History"])
+# --- ΔΗΜΙΟΥΡΓΙΑ TABS ---
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard & Smart Buy", "📈 Interactive Charts", "📋 Transactions History", "🛠 Pro Simulator"])
 
 with tab1:
-    # --- TOP METRICS ---
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
     col2.metric("Total PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}% ({pnl_eur:+,.2f}€)")
@@ -181,11 +240,17 @@ with tab1:
         strict_buy = new_cash_to_invest * strict_share
         smart_share = smart_allocations[asset] / total_smart_weight
         smart_buy = new_cash_to_invest * smart_share
+        
+        # Υπολογισμός New Avg Price με βάση το Smart Buy
+        new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
+        diff_avg = new_avg - stats['avg_price']
+        
         pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
 
         table_data.append({
             "Asset": asset,
             "Avg Price": f"${stats['avg_price']:.2f}",
+            "New Avg": f"${new_avg:.2f}",
             "Curr Price": f"${stats['price']:.2f}",
             "SMA 50": f"${stats['sma_50']:.2f}",
             "RSI": f"{stats['rsi']:.1f}",
@@ -200,7 +265,6 @@ with tab1:
 
 with tab2:
     st.subheader("📈 Interactive Portfolio Charts (Plotly)")
-    
     col_chart1, col_chart2 = st.columns(2)
     
     with col_chart1:
@@ -228,8 +292,45 @@ with tab2:
         st.plotly_chart(fig_bar, use_container_width=True)
 
 with tab3:
-    st.subheader("📋 Raw Transactions File")
-    if os.path.exists(history_csv):
-        raw_df = pd.read_csv(history_csv)
+    st.subheader("📋 Transactions History (SQLite Database)")
+    conn = sqlite3.connect(DB_FILE)
+    raw_df = pd.read_sql_query("SELECT * FROM transactions", conn)
+    conn.close()
+    if not raw_df.empty:
         raw_df.index = raw_df.index + 1
         st.dataframe(raw_df, use_container_width=True)
+    else:
+        st.info("Δεν υπάρχουν αποθηκευμένες συναλλαγές.")
+
+with tab4:
+    st.subheader("🛠 Pro Simulator: Dynamic Rebalancing")
+    st.markdown("Πειραματίσου με τα ποσοστά στόχου και δες πώς αλλάζει το Average Price σου!")
+    
+    sim_cash = st.number_input("Simulation Cash ($)", value=100.0, step=10.0, key="sim_cash")
+    
+    new_targets = {}
+    col_s1, col_s2 = st.columns(2)
+    
+    # Sliders για τα ποσοστά
+    for asset, data in portfolio_data.items():
+        new_targets[asset] = col_s1.slider(
+            f"Target % for {asset}", 
+            0.0, 1.0, float(data.get("target_pct", 0.1)), key=f"slider_{asset}"
+        )
+        
+    if st.button("Run Simulation"):
+        sim_results = []
+        for asset, data in portfolio_data.items():
+            stats = current_values[asset]
+            simulated_buy = sim_cash * new_targets[asset]
+            old_avg = stats['avg_price']
+            new_avg = calculate_new_avg(data['total_cost'], data['amount'], simulated_buy, stats['price'])
+            
+            sim_results.append({
+                "Asset": asset,
+                "Old Avg": f"${old_avg:.2f}",
+                "Simulated Buy": f"${simulated_buy:.2f}",
+                "New Avg Price": f"${new_avg:.2f}"
+            })
+        col_s2.table(pd.DataFrame(sim_results))
+        col_s2.success("Το simulation ολοκληρώθηκε επιτυχώς!")
