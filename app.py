@@ -106,7 +106,10 @@ def load_portfolio():
     df = pd.read_sql_query("SELECT * FROM transactions", conn)
     conn.close()
     
-    summary = df.groupby('Asset').agg({'Amount': 'sum', 'USD_Cost': 'sum'}).to_dict('index')
+    # Καθαρισμός ονομάτων στηλών (κάνε τα κεφαλαία για να ταιριάζουν)
+    df.columns = [col.strip().capitalize() for col in df.columns]
+    
+    summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
 
     settings = {
         "BTC": {"ticker": "BTC-USD", "target_pct": 0.55, "type": "live"},
@@ -119,10 +122,9 @@ def load_portfolio():
     for asset, data in summary.items():
         if asset in settings:
             data.update(settings[asset])
-            data['total_cost'] = data.pop('USD_Cost')
+            data['total_cost'] = data.pop('Usd_cost')
             data['amount'] = data.pop('Amount')
     return summary
-
 portfolio_data = load_portfolio()
 
 # Συνάρτηση υπολογισμού RSI
