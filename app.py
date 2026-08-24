@@ -30,21 +30,11 @@ def load_transactions_from_sheet():
     try:
         sheet = get_g_sheet()
         data_rows = sheet.get_all_records()
+        
+        # Αν το sheet είναι εντελώς άδειο (ούτε καν headers), βάζουμε τα headers
         if not data_rows:
-            # Αν είναι εντελώς άδειο, βάζουμε τα αρχικά δεδομένα
-            initial_data = [
-                {"Date": "2026-08-12", "Asset": "BTC", "Amount": 0.0201469, "USD_Cost": 1377.33},
-                {"Date": "2026-08-12", "Asset": "ETH", "Amount": 0.258, "USD_Cost": 442.73},
-                {"Date": "2026-08-12", "Asset": "SOL", "Amount": 4.5566, "USD_Cost": 323.13},
-                {"Date": "2026-08-12", "Asset": "ZEC", "Amount": 0.2061, "USD_Cost": 104.18},
-                {"Date": "2026-08-12", "Asset": "HYPE", "Amount": 3.17, "USD_Cost": 192.48}
-            ]
-            # Γράφουμε headers και αρχικές γραμμές
-            sheet.clear()
             sheet.append_row(["Date", "Asset", "Amount", "USD_Cost"])
-            for row in initial_data:
-                sheet.append_row([row["Date"], row["Asset"], row["Amount"], row["USD_Cost"]])
-            data_rows = sheet.get_all_records()
+            return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
             
         df = pd.DataFrame(data_rows)
         return df
@@ -67,7 +57,6 @@ new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0
 st.sidebar.markdown("---")
 st.sidebar.subheader("📝 Add New Transaction")
 
-# Φόρτωση δεδομένων συναλλαγών για το sidebar info
 raw_df_initial = load_transactions_from_sheet()
 latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.info(f"📅 Τελευταία συναλλαγή: **{latest_date}**")
@@ -81,13 +70,14 @@ if st.sidebar.button("Save Transaction"):
         t_date = datetime.now().strftime("%Y-%m-%d")
         try:
             sheet = get_g_sheet()
+            # Προσθήκη ακριβώς όπως την πληκτρολογείς, κάτω-κάτω στο Google Sheet
             sheet.append_row([t_date, asset_input, amount_input, cost_input])
-            st.sidebar.success(f"Καταγράφηκε στο Google Sheet: {amount_input} {asset_input}!")
+            st.sidebar.success(f"Καταγράφηκε επιτυχώς στο Google Sheet: {amount_input} {asset_input}!")
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Σφάλμα αποθήκευσης: {e}")
     else:
-        st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
+            st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
 
 # --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΟ GOOGLE SHEET ---
 def load_portfolio():
