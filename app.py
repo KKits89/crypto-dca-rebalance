@@ -211,12 +211,9 @@ for asset, data in portfolio_data.items():
     rsi = 50.0
     sma_50 = price
     
-    # 100% Δυναμική αναζήτηση ιστορικού, χωρίς καμία hardcoded τιμή
     try:
         ticker_str = f"{asset}-USD"
         hist = yf.Ticker(ticker_str).history(period="100d")
-        
-        # Εάν αποτύχει με το -USD, δοκιμάζουμε σκέτο το σύμβολο
         if hist.empty or len(hist) < 15:
             hist = yf.Ticker(asset).history(period="100d")
             
@@ -228,12 +225,11 @@ for asset, data in portfolio_data.items():
         if not hist.empty and len(hist) >= 15:
             rsi = get_rsi(hist['Close']).iloc[-1]
         else:
-            # Δυναμικός υπολογισμός RSI βάσει μεταβολής τιμής από μέσο όρο (χωρίς hardcoding)
             avg_p = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else price
             if price < avg_p:
-                rsi = 40.0  # Υποτιμημένο δυναμικά λόγω πτώσης
+                rsi = 40.0
             elif price > avg_p:
-                rsi = 60.0  # Υπερτιμημένο δυναμικά λόγω ανόδου
+                rsi = 60.0
             else:
                 rsi = 50.0
     except:
@@ -355,6 +351,70 @@ with tab1:
 
 with tab2:
     st.subheader("📈 Interactive Portfolio Charts (Plotly)")
+    
+    # --- ΗΜΕΡΟΛΟΓΙΑΚΟ ΓΡΑΦΙΜΑ ΕΞΕΛΙΞΗΣ (CALENDAR TIMELINE) ---
+    raw_tx_df = load_transactions_from_sheet()
+    if not raw_tx_df.empty:
+        try:
+            date_col = next((c for c in raw_tx_df.columns if 'date' in c.lower()), None)
+            cost_col = next((c for c in raw_tx_df.columns if 'cost' in c.lower() or 'usd' in c.lower()), None)
+            
+            if date_col and cost_col:
+                raw_tx_df[date_col] = pd.to_datetime(raw_tx_df[date_col])
+                # Ομαδοποίηση ημερήσιου κόστους και άθροιση
+                daily_costs = raw_tx_df.groupby(date_col)[cost_col].sum().reset_index()
+                daily_costs = daily_costs.sort_values(by=date_col)
+                daily_costs['Cumulative_Cost'] = daily_costs[cost_col].cumsum()
+                
+                # Δημιουργία πλήρους ημερολογιακού εύρους από την πρώτη συναλλαγή έως σήμερα
+                min_date = daily_costs[date_col].min()
+                max_date = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
+                
+                full_calendar = pd.date_range(start=min_date, end=max_date)
+                calendar_df = pd.DataFrame({date_col: full_calendar})
+                
+                # Συγχώνευση με τα δεδομένα μας και forward-fill ώστε να γεμίσουν σωστά οι μέρες
+                timeline_df = pd.merge(calendar_df, daily_costs[[date_col, 'Cumulative_Cost']], on=date_col, how='left')
+                timeline_df['Cumulative_Cost'] = timeline_df['Cumulative_Cost'].ffill().fillna(0)
+                
+                # Δημιουργία γράφου γραμμής
+                fig_timeline = go.Figure()
+                fig_timeline.add_trace(go.Scatter(
+                    x=timeline_df[date_col], 
+                    y=timeline_df['Cumulative_Cost'],
+                    mode='lines',
+                    name='Total Invested Cost ($)',
+                    line=dict(color='#3498db', width=3),
+                    fill='tozeroy',
+                    fillcolor='rgba(52, 152, 219, 0.1)'
+                ))
+                
+                # Σημείο τρέχουσας αξίας σήμερα
+                fig_timeline.add_trace(go.Scatter(
+                    x=[max_date],
+                    y=[total_current_portfolio],
+                    mode='markers+text',
+                    name='Current Portfolio Value ($)',
+                    marker=dict(size=12, color='#2ecc71'),
+                    text=[f"${total_current_portfolio:,.2f}"],
+                    textposition="top center"
+                ))
+                
+                fig_timeline.update_layout(
+                    title="📈 Calendar-Based Portfolio Investment Growth Over Time",
+                    xaxis_title="Date",
+                    yaxis_title="USD ($)",
+                    paper_bgcolor="#1e1e1e",
+                    plot_bgcolor="#1e1e1e",
+                    font_color="white",
+                    hovermode="x unified",
+                    xaxis=dict(type='date')
+                )
+                st.plotly_chart(fig_timeline, width='stretch')
+        except Exception as e:
+            st.info(f"Σφάλμα κατά τη δημιουργία του ημερολογιακού γραφήματος: {e}")
+
+    st.markdown("---")
     col_chart1, col_chart2 = st.columns(2)
     
     with col_chart1:
