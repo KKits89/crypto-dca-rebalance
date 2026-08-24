@@ -84,6 +84,7 @@ st.sidebar.subheader("📝 Add New Transaction")
 latest_date = get_latest_transaction_date()
 st.sidebar.info(f"📅 Τελευταία συναλλαγή: **{latest_date}**")
 
+# Διορθωμένο input όπως το ζήτησες
 asset_input = st.sidebar.text_input("Asset (π.χ. BTC ή XRP)", "BTC").upper().strip()
 amount_input = st.sidebar.number_input("Amount Bought", value=0.0, format="%.6f")
 cost_input = st.sidebar.number_input("USD Cost ($)", value=0.0, format="%.2f")
@@ -111,7 +112,6 @@ def load_portfolio():
     df.columns = [col.strip().capitalize() for col in df.columns]
     summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
 
-    # Προκαθορισμένα settings για τα βασικά σου νομίσματα
     default_settings = {
         "BTC": {"target_pct": 0.55, "cmc_slug": "bitcoin"},
         "ETH": {"target_pct": 0.20, "cmc_slug": "ethereum"},
@@ -124,12 +124,11 @@ def load_portfolio():
         data['total_cost'] = data.pop('Usd_cost')
         data['amount'] = data.pop('Amount')
         
-        # Αν προσθέσεις νέο νόμισμα (π.χ. XRP) που δεν είναι στα settings, του δίνουμε αυτόματα τιμές ασφαλείας!
         if asset in default_settings:
             data.update(default_settings[asset])
         else:
-            data['target_pct'] = 0.0  # Default target αν είναι εντελώς νέο
-            data['cmc_slug'] = asset.lower() # Default slug για το CMC link
+            data['target_pct'] = 0.0
+            data['cmc_slug'] = asset.lower()
             
     return summary
 
@@ -183,7 +182,6 @@ total_current_portfolio = 0
 total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values())
 
 for asset, data in portfolio_data.items():
-    # Παίρνει την τιμή από το CMC. Αν για κάποιο λόγο αποτύχει, παίρνει το μέσο κόστος αγοράς ως fallback.
     price = cmc_prices.get(asset, data["total_cost"] / data["amount"])
     
     try:
@@ -277,8 +275,8 @@ with tab1:
         cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
 
         table_data.append({
-            "Asset": asset,
-            "CMC Link": cmc_url,
+            "Asset": cmc_url,       # Το URL μπαίνει εδώ για να γίνει LinkColumn
+            "Name": asset,          # Κρατάμε το όνομα καθαρό
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
             "Curr Price": f"${stats['price']:.2f}",
@@ -292,15 +290,17 @@ with tab1:
     df_metrics = pd.DataFrame(table_data)
     df_metrics.index = df_metrics.index + 1
     
+    # Μεγάλος, φαρδύς πίνακας με καθαρά links πάνω στα ίδια τα ονόματα των coins
     st.dataframe(
         df_metrics,
         use_container_width=True,
         column_config={
-            "CMC Link": st.column_config.LinkColumn(
-                "CoinMarketCap",
+            "Asset": st.column_config.LinkColumn(
+                "Asset",
                 help="Κλικ για τα γραφήματα στο CoinMarketCap",
-                display_text="🔗 View Chart"
-            )
+                display_text=r"https://coinmarketcap.com/currencies/(.*?)/"
+            ),
+            "Name": None
         }
     )
 
