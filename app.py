@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import sqlite3
 import os
+import requests
 from datetime import datetime
 
 # --- ΡΥΘΜΙΣΗ ΣΕΛΙΔΑΣ ---
@@ -106,17 +107,15 @@ def load_portfolio():
     df = pd.read_sql_query("SELECT * FROM transactions", conn)
     conn.close()
     
-    # Καθαρισμός ονομάτων στηλών (κάνε τα κεφαλαία για να ταιριάζουν)
     df.columns = [col.strip().capitalize() for col in df.columns]
-    
     summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
 
     settings = {
-        "BTC": {"ticker": "BTC-USD", "target_pct": 0.55, "type": "live"},
-        "ETH": {"ticker": "ETH-USD", "target_pct": 0.20, "type": "live"},
-        "SOL": {"ticker": "SOL-USD", "multiplier": 1.0, "target_pct": 0.15, "type": "auto"},
-        "ZEC": {"ticker": "ZEC-USD", "target_pct": 0.05, "type": "live"},
-        "HYPE": {"ticker": "HYPE32196-USD", "target_pct": 0.05, "type": "live"}
+        "BTC": {"ticker": "BTC-USD", "target_pct": 0.55, "source": "yahoo"},
+        "ETH": {"ticker": "ETH-USD", "target_pct": 0.20, "source": "yahoo"},
+        "SOL": {"ticker": "SOL-USD", "multiplier": 1.0, "target_pct": 0.15, "source": "yahoo"},
+        "ZEC": {"ticker": "ZEC-USD", "target_pct": 0.05, "source": "yahoo"},
+        "HYPE": {"symbol": "HYPE", "target_pct": 0.05, "source": "cmc"}
     }
 
     for asset, data in summary.items():
@@ -125,7 +124,32 @@ def load_portfolio():
             data['total_cost'] = data.pop('Usd_cost')
             data['amount'] = data.pop('Amount')
     return summary
+
 portfolio_data = load_portfolio()
+
+# --- COINMARKETCAP LIVE PRICES FUNCTION ---
+@st.cache_data(ttl=600) # Κάνει cache για 10 λεπτά για να μην τρώμε τα requests
+def get_cmc_prices(symbols_list):
+    api_key = st.secrets["CMC_API_KEY"]
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+    symbols_str = ",".join(symbols_list)
+    
+    parameters = {"symbol": symbols_str, "convert": "USD"}
+    headers = {"Accepts": "application/json", "X-CMC_PRO_API_KEY": api_key}
+    
+    try:
+        response = requests.get(url, headers=headers, params=parameters)
+        data = response.json()
+        prices = {}
+        for sym in symbols_list:
+            prices[sym] = data["data"][sym]["quote"]["USD"]["price"]
+        return prices
+    except Exception as e:
+        return {}
+
+# Συλλογή συμβόλων για CoinMarketCap
+cmc_symbols = [data["symbol"] for data in portfolio_data.values() if data.get("source") == "cmc"]
+cmc_prices = get_cmc_prices(cmc_symbols) if cmc_symbols else {}
 
 # Συνάρτηση υπολογισμού RSI
 def get_rsi(series, period=14):
@@ -135,7 +159,7 @@ def get_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# Νέα συνάρτηση υπολογισμού New Average Price
+# Συνάρτηση υπολογισμού New Average Price
 def calculate_new_avg(old_cost, old_amount, new_money, current_price):
     if new_money <= 0 or current_price <= 0:
         return old_cost / old_amount if old_amount > 0 else 0
@@ -155,15 +179,27 @@ total_current_portfolio = 0
 total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values())
 
 for asset, data in portfolio_data.items():
-    try:
-        hist = yf.Ticker(data["ticker"]).history(period="100d")
-        price = hist['Close'].iloc[-1] * data.get("multiplier", 1.0)
-        sma_50 = hist['Close'].tail(50).mean() * data.get("multiplier", 1.0) if len(hist) >= 50 else price
-        rsi = get_rsi(hist['Close']).iloc[-1] if len(hist) >= 15 else 50.0
-    except:
-        price = data["total_cost"] / data["amount"]
-        sma_50 = price
-        rsi = 50.0
+    if data.get("source") == "cmc":
+        sym = data["symbol"]
+        price = cmc_prices.get(sym, data["total_cost"] / data["amount"])
+        # Για τα CMC coins παίρνουμε ιστορικό από yfinance για SMA/RSI αν υπάρχει, αλλαγή σε fallback αν αποτύχει
+        try:
+            hist = yf.Ticker(f"{sym}-USD").history(period="100d")
+            sma_50 = hist['Close'].tail(50).mean() if len(hist) >= 50 else price
+            rsi = get_rsi(hist['Close']).iloc[-1] if len(hist) >= 15 else 50.0
+        except:
+            sma_50 = price
+            rsi = 50.0
+    else:
+        try:
+            hist = yf.Ticker(data["ticker"]).history(period="100d")
+            price = hist['Close'].iloc[-1] * data.get("multiplier", 1.0)
+            sma_50 = hist['Close'].tail(50).mean() * data.get("multiplier", 1.0) if len(hist) >= 50 else price
+            rsi = get_rsi(hist['Close']).iloc[-1] if len(hist) >= 15 else 50.0
+        except:
+            price = data["total_cost"] / data["amount"]
+            sma_50 = price
+            rsi = 50.0
 
     val = data["amount"] * price
     avg_price = data["total_cost"] / data["amount"]
@@ -243,10 +279,7 @@ with tab1:
         smart_share = smart_allocations[asset] / total_smart_weight
         smart_buy = new_cash_to_invest * smart_share
         
-        # Υπολογισμός New Avg Price με βάση το Smart Buy
         new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
-        diff_avg = new_avg - stats['avg_price']
-        
         pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
 
         table_data.append({
@@ -313,7 +346,6 @@ with tab4:
     new_targets = {}
     col_s1, col_s2 = st.columns(2)
     
-    # Sliders για τα ποσοστά
     for asset, data in portfolio_data.items():
         new_targets[asset] = col_s1.slider(
             f"Target % for {asset}", 
