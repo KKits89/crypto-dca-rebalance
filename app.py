@@ -7,9 +7,13 @@ import sqlite3
 import os
 import requests
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 # --- ΡΥΘΜΙΣΗ ΣΕΛΙΔΑΣ ---
 st.set_page_config(layout="wide", page_title="Crypto DCA Pro Dashboard")
+
+# --- ΑΥΤΟΜΑΤΗ ΑΝΑΝΕΩΣΗ ΑΝΑ 30 ΔΕΥΤΕΡΟΛΕΠΤΑ ---
+st_autorefresh(interval=30 * 1000, key="datarefresh")
 
 st.title("🚀 Crypto DCA & Smart Buy Pro Dashboard")
 
@@ -31,7 +35,6 @@ def init_db():
     ''')
     conn.commit()
     
-    # Αν η βάση είναι άδειη αλλά υπάρχει το παλιό CSV, κάνε migration αυτόματα!
     cursor.execute("SELECT COUNT(*) FROM transactions")
     count = cursor.fetchone()[0]
     if count == 0 and os.path.exists(HISTORY_CSV):
@@ -46,7 +49,6 @@ def init_db():
         except:
             pass
             
-    # Αν η βάση είναι εντελώς άδειη και δεν υπάρχει CSV, βάλε τα αρχικά δεδομένα
     cursor.execute("SELECT COUNT(*) FROM transactions")
     if cursor.fetchone()[0] == 0:
         initial_data = [
@@ -63,7 +65,6 @@ def init_db():
 
 init_db()
 
-# Συνάρτηση ανάκτησης τελευταίας ημερομηνίας
 def get_latest_transaction_date():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -110,13 +111,12 @@ def load_portfolio():
     df.columns = [col.strip().capitalize() for col in df.columns]
     summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
 
-    # Ορισμός ποσοστών στόχου για όλα τα νομίσματα
     settings = {
-        "BTC": {"target_pct": 0.55},
-        "ETH": {"target_pct": 0.20},
-        "SOL": {"target_pct": 0.15},
-        "ZEC": {"target_pct": 0.05},
-        "HYPE": {"target_pct": 0.05}
+        "BTC": {"target_pct": 0.55, "cmc_slug": "bitcoin"},
+        "ETH": {"target_pct": 0.20, "cmc_slug": "ethereum"},
+        "SOL": {"target_pct": 0.15, "cmc_slug": "solana"},
+        "ZEC": {"target_pct": 0.05, "cmc_slug": "zcash"},
+        "HYPE": {"target_pct": 0.05, "cmc_slug": "hyperliquid"}
     }
 
     for asset, data in summary.items():
@@ -128,8 +128,7 @@ def load_portfolio():
 
 portfolio_data = load_portfolio()
 
-# --- COINMARKETCAP LIVE PRICES FUNCTION (ΟΛΑ ΑΠΟ ΕΔΩ) ---
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=25)
 def get_cmc_prices(symbols_list):
     api_key = st.secrets["CMC_API_KEY"]
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
@@ -146,14 +145,11 @@ def get_cmc_prices(symbols_list):
             prices[sym] = data["data"][sym]["quote"]["USD"]["price"]
         return prices
     except Exception as e:
-        st.error(f"Σφάλμα ανάκτησης τιμών CMC: {e}")
         return {}
 
-# Παίρνουμε τις live τιμές για όλα τα νομίσματα του πορτοφολιού μας με μία κλήση!
 all_symbols = list(portfolio_data.keys())
 cmc_prices = get_cmc_prices(all_symbols)
 
-# Συνάρτηση υπολογισμού RSI (χρησιμοποιεί yfinance ιστορικό μόνο για τεχνική ανάλυση RSI/SMA)
 def get_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -161,14 +157,12 @@ def get_rsi(series, period=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# Συνάρτηση υπολογισμού New Average Price
 def calculate_new_avg(old_cost, old_amount, new_money, current_price):
     if new_money <= 0 or current_price <= 0:
         return old_cost / old_amount if old_amount > 0 else 0
     new_amount = new_money / current_price
     return (old_cost + new_money) / (old_amount + new_amount)
 
-# Λήψη ισοτιμίας USD σε EUR
 try:
     eur_ticker = yf.Ticker("EURUSD=X")
     eur_rate = eur_ticker.history(period="1d")['Close'].iloc[-1]
@@ -181,10 +175,8 @@ total_current_portfolio = 0
 total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values())
 
 for asset, data in portfolio_data.items():
-    # Η τιμή έρχεται πλέον ΚΑΘΑΡΑ από το CoinMarketCap!
     price = cmc_prices.get(asset, data["total_cost"] / data["amount"])
     
-    # Για SMA 50 και RSI κρατάμε το yfinance ως βοηθητικό εργαλείο ανάλυσης
     try:
         hist = yf.Ticker(f"{asset}-USD").history(period="100d")
         sma_50 = hist['Close'].tail(50).mean() if len(hist) >= 50 else price
@@ -217,7 +209,6 @@ total_pnl_usd = total_current_portfolio - total_invested_cost
 pnl_eur = total_pnl_usd * usd_to_eur
 total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100
 
-# --- STRICT & SMART MODES ---
 strict_allocations = {}
 for asset, data in portfolio_data.items():
     cur_val = current_values[asset]["current_val"]
@@ -251,7 +242,6 @@ for asset, data in portfolio_data.items():
 if total_smart_weight == 0:
     total_smart_weight = 1.0
 
-# --- ΔΗΜΙΟΥΡΓΙΑ TABS ---
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard & Smart Buy", "📈 Interactive Charts", "📋 Transactions History", "🛠 Pro Simulator"])
 
 with tab1:
@@ -274,8 +264,12 @@ with tab1:
         new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
         pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
 
+        # Δημιουργία Markdown link για απευθείας μετάβαση στο CoinMarketCap του coin
+        slug = data.get("cmc_slug", asset.lower())
+        asset_link = f"[{asset}](https://coinmarketcap.com/currencies/{slug}/)"
+
         table_data.append({
-            "Asset": asset,
+            "Asset": asset_link,
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
             "Curr Price": f"${stats['price']:.2f}",
@@ -288,7 +282,8 @@ with tab1:
 
     df_metrics = pd.DataFrame(table_data)
     df_metrics.index = df_metrics.index + 1
-    st.dataframe(df_metrics, use_container_width=True)
+    # Χρησιμοποιούμε st.markdown με HTML/Markdown table για να δουλέψουν τα links στο dataframe
+    st.markdown(df_metrics.to_markdown(index=True), unsafe_allow_html=True)
 
 with tab2:
     st.subheader("📈 Interactive Portfolio Charts (Plotly)")
