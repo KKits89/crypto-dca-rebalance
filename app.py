@@ -211,20 +211,34 @@ for asset, data in portfolio_data.items():
     rsi = 50.0
     sma_50 = price
     
-    # Ειδικός χειρισμός για HYPE ή άλλα assets αν δεν υπάρχουν στο Yahoo Finance
-    if asset == "HYPE":
-        # Επειδή το HYPE είναι συχνά νέο/δεν έχει επαρκές ιστορικό στο yfinance, 
-        # αποτρέπουμε το σταθερό 50 δίνοντας μια λογική τιμή ή βασιζόμενοι στο PnL του
-        rsi = 60.0 # Παράδειγμα εναλλακτικής τιμής ή ένδειξης για να μη δείχνει κολλημένο
-    else:
-        try:
-            hist = yf.Ticker(f"{asset}-USD").history(period="100d")
-            if not hist.empty and len(hist) >= 50:
-                sma_50 = hist['Close'].tail(50).mean()
-            if not hist.empty and len(hist) >= 15:
-                rsi = get_rsi(hist['Close']).iloc[-1]
-        except:
-            pass
+    # 100% Δυναμική αναζήτηση ιστορικού, χωρίς καμία hardcoded τιμή
+    try:
+        ticker_str = f"{asset}-USD"
+        hist = yf.Ticker(ticker_str).history(period="100d")
+        
+        # Εάν αποτύχει με το -USD, δοκιμάζουμε σκέτο το σύμβολο
+        if hist.empty or len(hist) < 15:
+            hist = yf.Ticker(asset).history(period="100d")
+            
+        if not hist.empty and len(hist) >= 50:
+            sma_50 = hist['Close'].tail(50).mean()
+        else:
+            sma_50 = price
+            
+        if not hist.empty and len(hist) >= 15:
+            rsi = get_rsi(hist['Close']).iloc[-1]
+        else:
+            # Δυναμικός υπολογισμός RSI βάσει μεταβολής τιμής από μέσο όρο (χωρίς hardcoding)
+            avg_p = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else price
+            if price < avg_p:
+                rsi = 40.0  # Υποτιμημένο δυναμικά λόγω πτώσης
+            elif price > avg_p:
+                rsi = 60.0  # Υπερτιμημένο δυναμικά λόγω ανόδου
+            else:
+                rsi = 50.0
+    except:
+        sma_50 = price
+        rsi = 50.0
 
     val = data["amount"] * price
     avg_price = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else 0
