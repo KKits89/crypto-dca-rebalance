@@ -31,22 +31,29 @@ def load_transactions_from_sheet():
         sheet = get_g_sheet()
         data_rows = sheet.get_all_records()
         
-        # Αν το sheet είναι εντελώς άδειο (ούτε καν headers), βάζουμε τα headers
+        # Αν το sheet είναι εντελώς άδειο, βάζουμε μόνο τα headers
         if not data_rows:
             sheet.append_row(["Date", "Asset", "Amount", "USD_Cost"])
             return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
             
         df = pd.DataFrame(data_rows)
+        # Τυποποίηση ονομάτων στηλών
+        df.columns = [str(col).strip().capitalize() for col in df.columns]
+        if 'Usd_cost' in df.columns and 'USD_Cost' not in df.columns:
+            df.rename(columns={'Usd_cost': 'USD_Cost'}, inplace=True)
+            
         return df
     except Exception as e:
         st.error(f"Σφάλμα σύνδεσης με το Google Sheet: {e}")
         return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
 
 def get_latest_transaction_date(df):
-    if not df.empty and 'Date' in df.columns:
-        valid_dates = df['Date'].dropna()
-        if not valid_dates.empty:
-            return str(valid_dates.max())
+    if not df.empty:
+        for col in df.columns:
+            if 'date' in col.lower():
+                valid_dates = df[col].dropna()
+                if not valid_dates.empty:
+                    return str(valid_dates.max())
     return "Καμία"
 
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
@@ -70,14 +77,13 @@ if st.sidebar.button("Save Transaction"):
         t_date = datetime.now().strftime("%Y-%m-%d")
         try:
             sheet = get_g_sheet()
-            # Προσθήκη ακριβώς όπως την πληκτρολογείς, κάτω-κάτω στο Google Sheet
             sheet.append_row([t_date, asset_input, amount_input, cost_input])
             st.sidebar.success(f"Καταγράφηκε επιτυχώς στο Google Sheet: {amount_input} {asset_input}!")
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Σφάλμα αποθήκευσης: {e}")
     else:
-            st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
+        st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
 
 # --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΟ GOOGLE SHEET ---
 def load_portfolio():
@@ -85,8 +91,12 @@ def load_portfolio():
     if df.empty:
         return {}
     
-    df.columns = [col.strip().capitalize() for col in df.columns]
-    summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
+    # Εύρεση σωστών στηλών ανεξάρτητα από πεζά/κεφαλαία
+    col_asset = next((c for c in df.columns if 'asset' in c.lower()), 'Asset')
+    col_amount = next((c for c in df.columns if 'amount' in c.lower()), 'Amount')
+    col_cost = next((c for c in df.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
+    
+    summary = df.groupby(col_asset).agg({col_amount: 'sum', col_cost: 'sum'}).to_dict('index')
 
     default_settings = {
         "BTC": {"target_pct": 0.55, "cmc_slug": "bitcoin"},
@@ -96,17 +106,19 @@ def load_portfolio():
         "HYPE": {"target_pct": 0.05, "cmc_slug": "hyperliquid"}
     }
 
+    formatted_summary = {}
     for asset, data in summary.items():
-        data['total_cost'] = data.pop('Usd_cost')
-        data['amount'] = data.pop('Amount')
-        
+        formatted_summary[asset] = {
+            'total_cost': data[col_cost],
+            'amount': data[col_amount]
+        }
         if asset in default_settings:
-            data.update(default_settings[asset])
+            formatted_summary[asset].update(default_settings[asset])
         else:
-            data['target_pct'] = 0.0
-            data['cmc_slug'] = asset.lower()
+            formatted_summary[asset]['target_pct'] = 0.0
+            formatted_summary[asset]['cmc_slug'] = asset.lower()
             
-    return summary
+    return formatted_summary
 
 portfolio_data = load_portfolio()
 
@@ -158,7 +170,7 @@ total_current_portfolio = 0
 total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values()) if portfolio_data else 0
 
 for asset, data in portfolio_data.items():
-    price = cmc_prices.get(asset, data["total_cost"] / data["amount"])
+    price = cmc_prices.get(asset, data["total_cost"] / data["amount"] if data["amount"] > 0 else 0)
     
     try:
         hist = yf.Ticker(f"{asset}-USD").history(period="100d")
@@ -169,7 +181,7 @@ for asset, data in portfolio_data.items():
         rsi = 50.0
 
     val = data["amount"] * price
-    avg_price = data["total_cost"] / data["amount"]
+    avg_price = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else 0
     pnl_usd = val - data["total_cost"]
     pnl_pct = (pnl_usd / data["total_cost"]) * 100 if data["total_cost"] > 0 else 0
     is_healthy_dip = price >= sma_50
