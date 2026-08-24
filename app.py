@@ -110,12 +110,13 @@ def load_portfolio():
     df.columns = [col.strip().capitalize() for col in df.columns]
     summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
 
+    # Ορισμός ποσοστών στόχου για όλα τα νομίσματα
     settings = {
-        "BTC": {"ticker": "BTC-USD", "target_pct": 0.55, "source": "yahoo"},
-        "ETH": {"ticker": "ETH-USD", "target_pct": 0.20, "source": "yahoo"},
-        "SOL": {"ticker": "SOL-USD", "multiplier": 1.0, "target_pct": 0.15, "source": "yahoo"},
-        "ZEC": {"ticker": "ZEC-USD", "target_pct": 0.05, "source": "yahoo"},
-        "HYPE": {"symbol": "HYPE", "target_pct": 0.05, "source": "cmc"}
+        "BTC": {"target_pct": 0.55},
+        "ETH": {"target_pct": 0.20},
+        "SOL": {"target_pct": 0.15},
+        "ZEC": {"target_pct": 0.05},
+        "HYPE": {"target_pct": 0.05}
     }
 
     for asset, data in summary.items():
@@ -127,8 +128,8 @@ def load_portfolio():
 
 portfolio_data = load_portfolio()
 
-# --- COINMARKETCAP LIVE PRICES FUNCTION ---
-@st.cache_data(ttl=600) # Κάνει cache για 10 λεπτά για να μην τρώμε τα requests
+# --- COINMARKETCAP LIVE PRICES FUNCTION (ΟΛΑ ΑΠΟ ΕΔΩ) ---
+@st.cache_data(ttl=600)
 def get_cmc_prices(symbols_list):
     api_key = st.secrets["CMC_API_KEY"]
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
@@ -145,13 +146,14 @@ def get_cmc_prices(symbols_list):
             prices[sym] = data["data"][sym]["quote"]["USD"]["price"]
         return prices
     except Exception as e:
+        st.error(f"Σφάλμα ανάκτησης τιμών CMC: {e}")
         return {}
 
-# Συλλογή συμβόλων για CoinMarketCap
-cmc_symbols = [data["symbol"] for data in portfolio_data.values() if data.get("source") == "cmc"]
-cmc_prices = get_cmc_prices(cmc_symbols) if cmc_symbols else {}
+# Παίρνουμε τις live τιμές για όλα τα νομίσματα του πορτοφολιού μας με μία κλήση!
+all_symbols = list(portfolio_data.keys())
+cmc_prices = get_cmc_prices(all_symbols)
 
-# Συνάρτηση υπολογισμού RSI
+# Συνάρτηση υπολογισμού RSI (χρησιμοποιεί yfinance ιστορικό μόνο για τεχνική ανάλυση RSI/SMA)
 def get_rsi(series, period=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
@@ -179,27 +181,17 @@ total_current_portfolio = 0
 total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values())
 
 for asset, data in portfolio_data.items():
-    if data.get("source") == "cmc":
-        sym = data["symbol"]
-        price = cmc_prices.get(sym, data["total_cost"] / data["amount"])
-        # Για τα CMC coins παίρνουμε ιστορικό από yfinance για SMA/RSI αν υπάρχει, αλλαγή σε fallback αν αποτύχει
-        try:
-            hist = yf.Ticker(f"{sym}-USD").history(period="100d")
-            sma_50 = hist['Close'].tail(50).mean() if len(hist) >= 50 else price
-            rsi = get_rsi(hist['Close']).iloc[-1] if len(hist) >= 15 else 50.0
-        except:
-            sma_50 = price
-            rsi = 50.0
-    else:
-        try:
-            hist = yf.Ticker(data["ticker"]).history(period="100d")
-            price = hist['Close'].iloc[-1] * data.get("multiplier", 1.0)
-            sma_50 = hist['Close'].tail(50).mean() * data.get("multiplier", 1.0) if len(hist) >= 50 else price
-            rsi = get_rsi(hist['Close']).iloc[-1] if len(hist) >= 15 else 50.0
-        except:
-            price = data["total_cost"] / data["amount"]
-            sma_50 = price
-            rsi = 50.0
+    # Η τιμή έρχεται πλέον ΚΑΘΑΡΑ από το CoinMarketCap!
+    price = cmc_prices.get(asset, data["total_cost"] / data["amount"])
+    
+    # Για SMA 50 και RSI κρατάμε το yfinance ως βοηθητικό εργαλείο ανάλυσης
+    try:
+        hist = yf.Ticker(f"{asset}-USD").history(period="100d")
+        sma_50 = hist['Close'].tail(50).mean() if len(hist) >= 50 else price
+        rsi = get_rsi(hist['Close']).iloc[-1] if len(hist) >= 15 else 50.0
+    except:
+        sma_50 = price
+        rsi = 50.0
 
     val = data["amount"] * price
     avg_price = data["total_cost"] / data["amount"]
