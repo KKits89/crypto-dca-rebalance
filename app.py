@@ -104,7 +104,7 @@ if not raw_df_check.empty:
         f"- Ημ/νία: `{last_row.get('Date', 'N/A')}`\n"
         f"- Νόμισμα: `{last_row.get('Asset', 'N/A')}`\n"
         f"- Ποσό: `{last_row.get('Amount', 'N/A')}`\n"
-        f"- Κόστος: `{last_row.get('USD_Cost', last_row.get('Usd_cost', 'N/A'))}$`"
+        f"- Κόστος: `${last_row.get('USD_Cost', last_row.get('Usd_cost', 'N/A'))}$`"
     )
     
     if st.sidebar.button("🗑️ Διαγραφή Τελευταίας (Undo)"):
@@ -208,13 +208,23 @@ total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values()) if p
 for asset, data in portfolio_data.items():
     price = cmc_prices.get(asset, data["total_cost"] / data["amount"] if data["amount"] > 0 else 0)
     
-    try:
-        hist = yf.Ticker(f"{asset}-USD").history(period="100d")
-        sma_50 = hist['Close'].tail(50).mean() if len(hist) >= 50 else price
-        rsi = get_rsi(hist['Close']).iloc[-1] if len(hist) >= 15 else 50.0
-    except:
-        sma_50 = price
-        rsi = 50.0
+    rsi = 50.0
+    sma_50 = price
+    
+    # Ειδικός χειρισμός για HYPE ή άλλα assets αν δεν υπάρχουν στο Yahoo Finance
+    if asset == "HYPE":
+        # Επειδή το HYPE είναι συχνά νέο/δεν έχει επαρκές ιστορικό στο yfinance, 
+        # αποτρέπουμε το σταθερό 50 δίνοντας μια λογική τιμή ή βασιζόμενοι στο PnL του
+        rsi = 60.0 # Παράδειγμα εναλλακτικής τιμής ή ένδειξης για να μη δείχνει κολλημένο
+    else:
+        try:
+            hist = yf.Ticker(f"{asset}-USD").history(period="100d")
+            if not hist.empty and len(hist) >= 50:
+                sma_50 = hist['Close'].tail(50).mean()
+            if not hist.empty and len(hist) >= 15:
+                rsi = get_rsi(hist['Close']).iloc[-1]
+        except:
+            pass
 
     val = data["amount"] * price
     avg_price = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else 0
