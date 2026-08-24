@@ -84,12 +84,12 @@ st.sidebar.subheader("📝 Add New Transaction")
 latest_date = get_latest_transaction_date()
 st.sidebar.info(f"📅 Τελευταία συναλλαγή: **{latest_date}**")
 
-asset_input = st.sidebar.text_input("Asset (π.χ. BTC)", "BTC").upper()
+asset_input = st.sidebar.text_input("Asset (π.χ. BTC ή XRP)", "BTC").upper().strip()
 amount_input = st.sidebar.number_input("Amount Bought", value=0.0, format="%.6f")
 cost_input = st.sidebar.number_input("USD Cost ($)", value=0.0, format="%.2f")
 
 if st.sidebar.button("Save Transaction"):
-    if amount_input > 0 and cost_input > 0:
+    if amount_input > 0 and cost_input > 0 and asset_input:
         t_date = datetime.now().strftime("%Y-%m-%d")
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -100,7 +100,7 @@ if st.sidebar.button("Save Transaction"):
         st.sidebar.success(f"Καταγράφηκε στη βάση: {amount_input} {asset_input}!")
         st.rerun()
     else:
-        st.sidebar.error("Συμπλήρωσε ποσό και κόστος μεγαλύτερο από 0.")
+        st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
 
 # --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΗ ΒΑΣΗ ---
 def load_portfolio():
@@ -111,7 +111,8 @@ def load_portfolio():
     df.columns = [col.strip().capitalize() for col in df.columns]
     summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
 
-    settings = {
+    # Προκαθορισμένα settings για τα βασικά σου νομίσματα
+    default_settings = {
         "BTC": {"target_pct": 0.55, "cmc_slug": "bitcoin"},
         "ETH": {"target_pct": 0.20, "cmc_slug": "ethereum"},
         "SOL": {"target_pct": 0.15, "cmc_slug": "solana"},
@@ -120,10 +121,16 @@ def load_portfolio():
     }
 
     for asset, data in summary.items():
-        if asset in settings:
-            data.update(settings[asset])
-            data['total_cost'] = data.pop('Usd_cost')
-            data['amount'] = data.pop('Amount')
+        data['total_cost'] = data.pop('Usd_cost')
+        data['amount'] = data.pop('Amount')
+        
+        # Αν προσθέσεις νέο νόμισμα (π.χ. XRP) που δεν είναι στα settings, του δίνουμε αυτόματα τιμές ασφαλείας!
+        if asset in default_settings:
+            data.update(default_settings[asset])
+        else:
+            data['target_pct'] = 0.0  # Default target αν είναι εντελώς νέο
+            data['cmc_slug'] = asset.lower() # Default slug για το CMC link
+            
     return summary
 
 portfolio_data = load_portfolio()
@@ -142,7 +149,8 @@ def get_cmc_prices(symbols_list):
         data = response.json()
         prices = {}
         for sym in symbols_list:
-            prices[sym] = data["data"][sym]["quote"]["USD"]["price"]
+            if sym in data.get("data", {}):
+                prices[sym] = data["data"][sym]["quote"]["USD"]["price"]
         return prices
     except Exception as e:
         return {}
@@ -175,6 +183,7 @@ total_current_portfolio = 0
 total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values())
 
 for asset, data in portfolio_data.items():
+    # Παίρνει την τιμή από το CMC. Αν για κάποιο λόγο αποτύχει, παίρνει το μέσο κόστος αγοράς ως fallback.
     price = cmc_prices.get(asset, data["total_cost"] / data["amount"])
     
     try:
@@ -264,12 +273,12 @@ with tab1:
         new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
         pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
 
-        # Δημιουργία Markdown link για απευθείας μετάβαση στο CoinMarketCap του coin
         slug = data.get("cmc_slug", asset.lower())
-        asset_link = f"[{asset}](https://coinmarketcap.com/currencies/{slug}/)"
+        cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
 
         table_data.append({
-            "Asset": asset_link,
+            "Asset": asset,
+            "CMC Link": cmc_url,
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
             "Curr Price": f"${stats['price']:.2f}",
@@ -282,8 +291,18 @@ with tab1:
 
     df_metrics = pd.DataFrame(table_data)
     df_metrics.index = df_metrics.index + 1
-    # Χρησιμοποιούμε st.markdown με HTML/Markdown table για να δουλέψουν τα links στο dataframe
-    st.markdown(df_metrics.to_markdown(index=True), unsafe_allow_html=True)
+    
+    st.dataframe(
+        df_metrics,
+        use_container_width=True,
+        column_config={
+            "CMC Link": st.column_config.LinkColumn(
+                "CoinMarketCap",
+                help="Κλικ για τα γραφήματα στο CoinMarketCap",
+                display_text="🔗 View Chart"
+            )
+        }
+    )
 
 with tab2:
     st.subheader("📈 Interactive Portfolio Charts (Plotly)")
