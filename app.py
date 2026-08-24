@@ -41,6 +41,11 @@ def load_transactions_from_sheet():
         if 'Usd_cost' in df.columns and 'USD_Cost' not in df.columns:
             df.rename(columns={'Usd_cost': 'USD_Cost'}, inplace=True)
             
+        # Καθαρισμός και μετατροπή στηλών σε αριθμούς για να μην τρελαίνονται τα μαθηματικά
+        for col in ['Amount', 'Usd_cost', 'USD_Cost']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+                
         return df
     except Exception as e:
         st.error(f"Σφάλμα σύνδεσης με το Google Sheet: {e}")
@@ -77,7 +82,7 @@ if st.sidebar.button("Save Transaction"):
         try:
             sheet = get_g_sheet()
             sheet.append_row([t_date, asset_input, amount_input, cost_input])
-            st.cache_data.clear()  # Καθαρισμός cache για άμεση ανάγνωση
+            st.cache_data.clear()
             st.sidebar.success(f"Καταγράφηκε επιτυχώς στο Google Sheet: {amount_input} {asset_input}!")
             st.rerun()
         except Exception as e:
@@ -108,7 +113,7 @@ if not raw_df_check.empty:
             if len(all_values) > 1:
                 row_to_delete = len(all_values)
                 sheet.delete_rows(row_to_delete)
-                st.cache_data.clear()  # Καθαρισμός cache
+                st.cache_data.clear()
                 st.sidebar.success("Η τελευταία συναλλαγή διαγράφηκε επιτυχώς!")
                 st.rerun()
             else:
@@ -139,8 +144,8 @@ def load_portfolio():
     formatted_summary = {}
     for asset, data in summary.items():
         formatted_summary[asset] = {
-            'total_cost': data[col_cost],
-            'amount': data[col_amount]
+            'total_cost': float(data[col_cost]),
+            'amount': float(data[col_amount])
         }
         if asset in default_settings:
             formatted_summary[asset].update(default_settings[asset])
