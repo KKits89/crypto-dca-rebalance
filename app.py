@@ -68,6 +68,35 @@ raw_df_initial = load_transactions_from_sheet()
 latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.info(f"📅 Τελευταία συναλλαγή: **{latest_date}**")
 
+# --- ΔΙΚΛΕΙΔΑ ΑΣΦΑΛΕΙΑΣ: ΕΜΦΑΝΙΣΗ & UNDO ΤΕΛΕΥΤΑΙΑΣ ΕΓΓΡΑΦΗΣ ---
+if not raw_df_initial.empty:
+    last_row = raw_df_initial.iloc[-1]
+    st.sidebar.markdown(
+        f"**Τελευταία καταχώρηση:**\n"
+        f"- Ημ/νία: `{last_row.get('Date', 'N/A')}`\n"
+        f"- Νόμισμα: `{last_row.get('Asset', 'N/A')}`\n"
+        f"- Ποσό: `{last_row.get('Amount', 'N/A')}`\n"
+        f"- Κόστος: `${last_row.get('USD_Cost', 'N/A')}`"
+    )
+    
+    if st.sidebar.button("🗑️ Διαγραφή Τελευταίας Συναλλαγής (Undo)"):
+        try:
+            sheet = get_g_sheet()
+            # Το get_all_records πιάνει τα δεδομένα από τη γραμμή 2 και κάτω. 
+            # Η συνολική γραμμή στο Sheet είναι: row index = len(data_rows) + 2 (λόγω headers)
+            all_values = sheet.get_all_values()
+            if len(all_values) > 1:
+                row_to_delete = len(all_values) # Η τελευταία γραμμή
+                sheet.delete_rows(row_to_delete)
+                st.sidebar.success("Η τελευταία συναλλαγή διαγράφηκε επιτυχώς!")
+                st.rerun()
+            else:
+                st.sidebar.warning("Δεν υπάρχουν άλλες συναλλαγές για διαγραφή (έμειναν τα headers).")
+        except Exception as e:
+            st.sidebar.error(f"Σφάλμα κατά τη διαγραφή: {e}")
+
+st.sidebar.markdown("---")
+
 asset_input = st.sidebar.text_input("Asset (π.χ. BTC ή XRP)", "BTC").upper().strip()
 amount_input = st.sidebar.number_input("Amount Bought", value=0.0, format="%.6f")
 cost_input = st.sidebar.number_input("USD Cost ($)", value=0.0, format="%.2f")
@@ -91,7 +120,6 @@ def load_portfolio():
     if df.empty:
         return {}
     
-    # Εύρεση σωστών στηλών ανεξάρτητα από πεζά/κεφαλαία
     col_asset = next((c for c in df.columns if 'asset' in c.lower()), 'Asset')
     col_amount = next((c for c in df.columns if 'amount' in c.lower()), 'Amount')
     col_cost = next((c for c in df.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
