@@ -41,7 +41,6 @@ def load_transactions_from_sheet():
         if 'Usd_cost' in df.columns and 'USD_Cost' not in df.columns:
             df.rename(columns={'Usd_cost': 'USD_Cost'}, inplace=True)
             
-        # Διόρθωση: Σωστός καθαρισμός και μετατροπή σε αριθμούς (float) για αποφυγή κολλήματος κειμένου
         for col in ['Amount', 'USD_Cost']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
@@ -83,7 +82,8 @@ if st.sidebar.button("Save Transaction"):
         t_date = datetime.now().strftime("%Y-%m-%d")
         try:
             sheet = get_g_sheet()
-            sheet.append_row([t_date, asset_input, amount_input, cost_input])
+            # ΔΙΟΡΘΩΣΗ: Αποστολή ως string με τελεία για αποφυγή αλλοίωσης υποδιαστολής από το Google Sheets
+            sheet.append_row([t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}"])
             st.cache_data.clear()
             st.sidebar.success(f"Καταγράφηκε επιτυχώς στο Google Sheet: {amount_input} {asset_input}!")
             st.rerun()
