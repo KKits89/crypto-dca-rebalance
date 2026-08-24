@@ -41,10 +41,12 @@ def load_transactions_from_sheet():
         if 'Usd_cost' in df.columns and 'USD_Cost' not in df.columns:
             df.rename(columns={'Usd_cost': 'USD_Cost'}, inplace=True)
             
-        # Καθαρισμός και μετατροπή στηλών σε αριθμούς για να μην τρελαίνονται τα μαθηματικά
-        for col in ['Amount', 'Usd_cost', 'USD_Cost']:
+        # Διόρθωση: Σωστός καθαρισμός και μετατροπή σε αριθμούς (float) για αποφυγή κολλήματος κειμένου
+        for col in ['Amount', 'USD_Cost']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
+            elif col.lower() in df.columns:
+                df[col.lower()] = pd.to_numeric(df[col.lower()].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
                 
         return df
     except Exception as e:
@@ -103,7 +105,7 @@ if not raw_df_check.empty:
         f"- Ημ/νία: `{last_row.get('Date', 'N/A')}`\n"
         f"- Νόμισμα: `{last_row.get('Asset', 'N/A')}`\n"
         f"- Ποσό: `{last_row.get('Amount', 'N/A')}`\n"
-        f"- Κόστος: `${last_row.get('USD_Cost', 'N/A')}`"
+        f"- Κόστος: `${last_row.get('USD_Cost', last_row.get('Usd_cost', 'N/A'))}`"
     )
     
     if st.sidebar.button("🗑️ Διαγραφή Τελευταίας (Undo)"):
