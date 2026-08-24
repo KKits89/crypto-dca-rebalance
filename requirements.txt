@@ -1,5 +1,7 @@
 streamlit
 yfinance
-pandas
-matplotlib
 plotly
+pandas
+requests
+streamlit-autorefresh
+tabulate
