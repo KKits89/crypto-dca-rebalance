@@ -3,11 +3,11 @@ import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-import sqlite3
-import os
 import requests
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- ΡΥΘΜΙΣΗ ΣΕΛΙΔΑΣ ---
 st.set_page_config(layout="wide", page_title="Crypto DCA Pro Dashboard")
@@ -17,61 +17,47 @@ st_autorefresh(interval=30 * 1000, key="datarefresh")
 
 st.title("🚀 Crypto DCA & Smart Buy Pro Dashboard")
 
-# --- DATABASE SETUP (SQLITE) ---
-DB_FILE = "portfolio.db"
-HISTORY_CSV = "transactions.csv"
+# --- GOOGLE SHEETS SETUP ---
+def get_g_sheet():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    sheet = client.open("CryptoPortfolio").sheet1 
+    return sheet
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT,
-            asset TEXT,
-            amount REAL,
-            usd_cost REAL
-        )
-    ''')
-    conn.commit()
-    
-    cursor.execute("SELECT COUNT(*) FROM transactions")
-    count = cursor.fetchone()[0]
-    if count == 0 and os.path.exists(HISTORY_CSV):
-        try:
-            df_old = pd.read_csv(HISTORY_CSV)
-            for _, row in df_old.iterrows():
-                cursor.execute(
-                    "INSERT INTO transactions (date, asset, amount, usd_cost) VALUES (?, ?, ?, ?)",
-                    (row['Date'], row['Asset'], row['Amount'], row['USD_Cost'])
-                )
-            conn.commit()
-        except:
-            pass
+def load_transactions_from_sheet():
+    try:
+        sheet = get_g_sheet()
+        data_rows = sheet.get_all_records()
+        if not data_rows:
+            # Αν είναι εντελώς άδειο, βάζουμε τα αρχικά δεδομένα
+            initial_data = [
+                {"Date": "2026-08-12", "Asset": "BTC", "Amount": 0.0201469, "USD_Cost": 1377.33},
+                {"Date": "2026-08-12", "Asset": "ETH", "Amount": 0.258, "USD_Cost": 442.73},
+                {"Date": "2026-08-12", "Asset": "SOL", "Amount": 4.5566, "USD_Cost": 323.13},
+                {"Date": "2026-08-12", "Asset": "ZEC", "Amount": 0.2061, "USD_Cost": 104.18},
+                {"Date": "2026-08-12", "Asset": "HYPE", "Amount": 3.17, "USD_Cost": 192.48}
+            ]
+            # Γράφουμε headers και αρχικές γραμμές
+            sheet.clear()
+            sheet.append_row(["Date", "Asset", "Amount", "USD_Cost"])
+            for row in initial_data:
+                sheet.append_row([row["Date"], row["Asset"], row["Amount"], row["USD_Cost"]])
+            data_rows = sheet.get_all_records()
             
-    cursor.execute("SELECT COUNT(*) FROM transactions")
-    if cursor.fetchone()[0] == 0:
-        initial_data = [
-            ("2026-08-12", "BTC", 0.0201469, 1377.33),
-            ("2026-08-12", "ETH", 0.258, 442.73),
-            ("2026-08-12", "SOL", 4.5566, 323.13),
-            ("2026-08-12", "ZEC", 0.2061, 104.18),
-            ("2026-08-12", "HYPE", 3.17, 192.48)
-        ]
-        cursor.executemany("INSERT INTO transactions (date, asset, amount, usd_cost) VALUES (?, ?, ?, ?)", initial_data)
-        conn.commit()
-        
-    conn.close()
+        df = pd.DataFrame(data_rows)
+        return df
+    except Exception as e:
+        st.error(f"Σφάλμα σύνδεσης με το Google Sheet: {e}")
+        return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
 
-init_db()
-
-def get_latest_transaction_date():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT MAX(date) FROM transactions")
-    res = cursor.fetchone()
-    conn.close()
-    return res[0] if res and res[0] else "Καμία"
+def get_latest_transaction_date(df):
+    if not df.empty and 'Date' in df.columns:
+        valid_dates = df['Date'].dropna()
+        if not valid_dates.empty:
+            return str(valid_dates.max())
+    return "Καμία"
 
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
 st.sidebar.title("🤖 DCA Settings")
@@ -81,10 +67,11 @@ new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0
 st.sidebar.markdown("---")
 st.sidebar.subheader("📝 Add New Transaction")
 
-latest_date = get_latest_transaction_date()
+# Φόρτωση δεδομένων συναλλαγών για το sidebar info
+raw_df_initial = load_transactions_from_sheet()
+latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.info(f"📅 Τελευταία συναλλαγή: **{latest_date}**")
 
-# Διορθωμένο input όπως το ζήτησες
 asset_input = st.sidebar.text_input("Asset (π.χ. BTC ή XRP)", "BTC").upper().strip()
 amount_input = st.sidebar.number_input("Amount Bought", value=0.0, format="%.6f")
 cost_input = st.sidebar.number_input("USD Cost ($)", value=0.0, format="%.2f")
@@ -92,22 +79,21 @@ cost_input = st.sidebar.number_input("USD Cost ($)", value=0.0, format="%.2f")
 if st.sidebar.button("Save Transaction"):
     if amount_input > 0 and cost_input > 0 and asset_input:
         t_date = datetime.now().strftime("%Y-%m-%d")
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO transactions (date, asset, amount, usd_cost) VALUES (?, ?, ?, ?)",
-                       (t_date, asset_input, amount_input, cost_input))
-        conn.commit()
-        conn.close()
-        st.sidebar.success(f"Καταγράφηκε στη βάση: {amount_input} {asset_input}!")
-        st.rerun()
+        try:
+            sheet = get_g_sheet()
+            sheet.append_row([t_date, asset_input, amount_input, cost_input])
+            st.sidebar.success(f"Καταγράφηκε στο Google Sheet: {amount_input} {asset_input}!")
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Σφάλμα αποθήκευσης: {e}")
     else:
         st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
 
-# --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΗ ΒΑΣΗ ---
+# --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΟ GOOGLE SHEET ---
 def load_portfolio():
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT * FROM transactions", conn)
-    conn.close()
+    df = load_transactions_from_sheet()
+    if df.empty:
+        return {}
     
     df.columns = [col.strip().capitalize() for col in df.columns]
     summary = df.groupby('Asset').agg({'Amount': 'sum', 'Usd_cost': 'sum'}).to_dict('index')
@@ -155,7 +141,7 @@ def get_cmc_prices(symbols_list):
         return {}
 
 all_symbols = list(portfolio_data.keys())
-cmc_prices = get_cmc_prices(all_symbols)
+cmc_prices = get_cmc_prices(all_symbols) if all_symbols else {}
 
 def get_rsi(series, period=14):
     delta = series.diff()
@@ -179,7 +165,7 @@ except:
 
 current_values = {}
 total_current_portfolio = 0
-total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values())
+total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values()) if portfolio_data else 0
 
 for asset, data in portfolio_data.items():
     price = cmc_prices.get(asset, data["total_cost"] / data["amount"])
@@ -195,7 +181,7 @@ for asset, data in portfolio_data.items():
     val = data["amount"] * price
     avg_price = data["total_cost"] / data["amount"]
     pnl_usd = val - data["total_cost"]
-    pnl_pct = (pnl_usd / data["total_cost"]) * 100
+    pnl_pct = (pnl_usd / data["total_cost"]) * 100 if data["total_cost"] > 0 else 0
     is_healthy_dip = price >= sma_50
 
     current_values[asset] = {
@@ -214,7 +200,7 @@ new_total_portfolio = total_current_portfolio + new_cash_to_invest
 tot_eur = total_current_portfolio * usd_to_eur
 total_pnl_usd = total_current_portfolio - total_invested_cost
 pnl_eur = total_pnl_usd * usd_to_eur
-total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100
+total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100 if total_invested_cost > 0 else 0
 
 strict_allocations = {}
 for asset, data in portfolio_data.items():
@@ -236,7 +222,7 @@ for asset, data in portfolio_data.items():
     stats = current_values[asset]
 
     if pnl < 0 and stats["is_healthy_dip"]:
-        base_bonus = min(abs(pnl) / total_current_portfolio * 2, 0.5)
+        base_bonus = min(abs(pnl) / total_current_portfolio * 2, 0.5) if total_current_portfolio > 0 else 0
         rsi_multiplier = 1.3 if stats["rsi"] < 40 else 1.0
         pnl_weight = 1.0 + (base_bonus * rsi_multiplier)
     else:
@@ -275,8 +261,8 @@ with tab1:
         cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
 
         table_data.append({
-            "Asset": cmc_url,       # Το URL μπαίνει εδώ για να γίνει LinkColumn
-            "Name": asset,          # Κρατάμε το όνομα καθαρό
+            "Asset": cmc_url,
+            "Name": asset,
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
             "Curr Price": f"${stats['price']:.2f}",
@@ -288,12 +274,12 @@ with tab1:
         })
 
     df_metrics = pd.DataFrame(table_data)
-    df_metrics.index = df_metrics.index + 1
+    if not df_metrics.empty:
+        df_metrics.index = df_metrics.index + 1
     
-    # Μεγάλος, φαρδύς πίνακας με καθαρά links πάνω στα ίδια τα ονόματα των coins
     st.dataframe(
         df_metrics,
-        use_container_width=True,
+        width='stretch',
         column_config={
             "Asset": st.column_config.LinkColumn(
                 "Asset",
@@ -309,37 +295,41 @@ with tab2:
     col_chart1, col_chart2 = st.columns(2)
     
     with col_chart1:
-        fig_pie = px.pie(
-            names=list(current_values.keys()),
-            values=[info["current_val"] for info in current_values.values()],
-            title="Portfolio Distribution",
-            hole=0.4
-        )
-        fig_pie.update_layout(paper_bgcolor="#1e1e1e", font_color="white")
-        st.plotly_chart(fig_pie, use_container_width=True)
+        if current_values:
+            fig_pie = px.pie(
+                names=list(current_values.keys()),
+                values=[info["current_val"] for info in current_values.values()],
+                title="Portfolio Distribution",
+                hole=0.4
+            )
+            fig_pie.update_layout(paper_bgcolor="#1e1e1e", font_color="white")
+            st.plotly_chart(fig_pie, width='stretch')
+        else:
+            st.info("Δεν υπάρχουν δεδομένα για γράφημα.")
         
     with col_chart2:
-        assets_list = list(current_values.keys())
-        pnl_values = [info["pnl_usd"] for info in current_values.values()]
-        colors = ['#2ecc71' if v >= 0 else '#ff4757' for v in pnl_values]
-        
-        fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
-        fig_bar.update_layout(
-            title="PnL per Coin ($)",
-            paper_bgcolor="#1e1e1e",
-            plot_bgcolor="#1e1e1e",
-            font_color="white"
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        if current_values:
+            assets_list = list(current_values.keys())
+            pnl_values = [info["pnl_usd"] for info in current_values.values()]
+            colors = ['#2ecc71' if v >= 0 else '#ff4757' for v in pnl_values]
+            
+            fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
+            fig_bar.update_layout(
+                title="PnL per Coin ($)",
+                paper_bgcolor="#1e1e1e",
+                plot_bgcolor="#1e1e1e",
+                font_color="white"
+            )
+            st.plotly_chart(fig_bar, width='stretch')
+        else:
+            st.info("Δεν υπάρχουν δεδομένα για γράφημα.")
 
 with tab3:
-    st.subheader("📋 Transactions History (SQLite Database)")
-    conn = sqlite3.connect(DB_FILE)
-    raw_df = pd.read_sql_query("SELECT * FROM transactions", conn)
-    conn.close()
+    st.subheader("📋 Transactions History (Google Sheet)")
+    raw_df = load_transactions_from_sheet()
     if not raw_df.empty:
         raw_df.index = raw_df.index + 1
-        st.dataframe(raw_df, use_container_width=True)
+        st.dataframe(raw_df, width='stretch')
     else:
         st.info("Δεν υπάρχουν αποθηκευμένες συναλλαγές.")
 
