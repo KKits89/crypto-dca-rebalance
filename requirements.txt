@@ -5,3 +5,5 @@ pandas
 requests
 streamlit-autorefresh
 tabulate
+gspread
+google-auth
