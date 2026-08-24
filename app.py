@@ -64,11 +64,6 @@ def get_latest_transaction_date(df):
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
 st.sidebar.title("🤖 DCA Settings")
 
-# --- ΚΟΥΜΠΙ ΧΕΙΡΟΚΙΝΗΤΗΣ ΑΝΑΝΕΩΣΗΣ ---
-if st.sidebar.button("🔄 Χειροκίνητη Ανανέωση"):
-    st.cache_data.clear()
-    st.rerun()
-
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
@@ -306,6 +301,7 @@ with tab1:
         table_data.append({
             "Asset": cmc_url,
             "Name": asset,
+            "Amount": f"{data['amount']:.6f}",
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
             "Curr Price": f"${stats['price']:.2f}",
