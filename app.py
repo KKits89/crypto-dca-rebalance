@@ -26,18 +26,17 @@ def get_g_sheet():
     sheet = client.open("CryptoPortfolio").sheet1 
     return sheet
 
+@st.cache_data(ttl=10)
 def load_transactions_from_sheet():
     try:
         sheet = get_g_sheet()
         data_rows = sheet.get_all_records()
         
-        # Αν το sheet είναι εντελώς άδειο, βάζουμε μόνο τα headers
         if not data_rows:
             sheet.append_row(["Date", "Asset", "Amount", "USD_Cost"])
             return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
             
         df = pd.DataFrame(data_rows)
-        # Τυποποίηση ονομάτων στηλών
         df.columns = [str(col).strip().capitalize() for col in df.columns]
         if 'Usd_cost' in df.columns and 'USD_Cost' not in df.columns:
             df.rename(columns={'Usd_cost': 'USD_Cost'}, inplace=True)
@@ -78,6 +77,7 @@ if st.sidebar.button("Save Transaction"):
         try:
             sheet = get_g_sheet()
             sheet.append_row([t_date, asset_input, amount_input, cost_input])
+            st.cache_data.clear()  # Καθαρισμός cache για άμεση ανάγνωση
             st.sidebar.success(f"Καταγράφηκε επιτυχώς στο Google Sheet: {amount_input} {asset_input}!")
             st.rerun()
         except Exception as e:
@@ -85,11 +85,10 @@ if st.sidebar.button("Save Transaction"):
     else:
         st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
 
-# --- ΔΙΚΛΕΙΔΑ ΑΣΦΑΛΕΙΑΣ: ΕΜΦΑΝΙΣΗ & UNDO ΤΕΛΕΥΤΑΙΑΣ ΕΓΓΡΑΦΗΣ (ΚΑΤΩ ΑΠΟ ΤΟ ADD) ---
+# --- ΔΙΚΛΕΙΔΑ ΑΣΦΑΛΕΙΑΣ: ΕΜΦΑΝΙΣΗ & UNDO ΤΕΛΕΥΤΑΙΑΣ ΕΓΓΡΑΦΗΣ ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🛡️ Safety Check / Undo")
 
-# Ξαναφορτώνουμε το raw_df σε περίπτωση που μόλις έγινε save
 raw_df_check = load_transactions_from_sheet()
 
 if not raw_df_check.empty:
@@ -109,6 +108,7 @@ if not raw_df_check.empty:
             if len(all_values) > 1:
                 row_to_delete = len(all_values)
                 sheet.delete_rows(row_to_delete)
+                st.cache_data.clear()  # Καθαρισμός cache
                 st.sidebar.success("Η τελευταία συναλλαγή διαγράφηκε επιτυχώς!")
                 st.rerun()
             else:
