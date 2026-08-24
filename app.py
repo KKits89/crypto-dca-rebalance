@@ -12,8 +12,8 @@ from google.oauth2.service_account import Credentials
 # --- ΡΥΘΜΙΣΗ ΣΕΛΙΔΑΣ ---
 st.set_page_config(layout="wide", page_title="Crypto DCA Pro Dashboard")
 
-# --- ΑΥΤΟΜΑΤΗ ΑΝΑΝΕΩΣΗ ΑΝΑ 30 ΔΕΥΤΕΡΟΛΕΠΤΑ ---
-st_autorefresh(interval=30 * 1000, key="datarefresh")
+# --- ΑΥΤΟΜΑΤΗ ΑΝΑΝΕΩΣΗ ΑΝΑ 1 ΛΕΠΤΟ (60 ΔΕΥΤΕΡΟΛΕΠΤΑ) ---
+st_autorefresh(interval=60 * 1000, key="datarefresh")
 
 st.title("🚀 Crypto DCA & Smart Buy Pro Dashboard")
 
@@ -64,6 +64,11 @@ def get_latest_transaction_date(df):
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
 st.sidebar.title("🤖 DCA Settings")
 
+# --- ΚΟΥΜΠΙ ΧΕΙΡΟΚΙΝΗΤΗΣ ΑΝΑΝΕΩΣΗΣ ---
+if st.sidebar.button("🔄 Χειροκίνητη Ανανέωση"):
+    st.cache_data.clear()
+    st.rerun()
+
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
@@ -82,7 +87,6 @@ if st.sidebar.button("Save Transaction"):
         t_date = datetime.now().strftime("%Y-%m-%d")
         try:
             sheet = get_g_sheet()
-            # ΔΙΟΡΘΩΣΗ: Αποστολή ως string με τελεία για αποφυγή αλλοίωσης υποδιαστολής από το Google Sheets
             sheet.append_row([t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}"])
             st.cache_data.clear()
             st.sidebar.success(f"Καταγράφηκε επιτυχώς στο Google Sheet: {amount_input} {asset_input}!")
