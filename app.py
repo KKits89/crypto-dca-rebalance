@@ -104,7 +104,7 @@ if not raw_df_check.empty:
         f"- Ημ/νία: `{last_row.get('Date', 'N/A')}`\n"
         f"- Νόμισμα: `{last_row.get('Asset', 'N/A')}`\n"
         f"- Ποσό: `{last_row.get('Amount', 'N/A')}`\n"
-        f"- Κόστος: `${last_row.get('USD_Cost', last_row.get('Usd_cost', 'N/A'))}`"
+        f"- Κόστος: `{last_row.get('USD_Cost', last_row.get('Usd_cost', 'N/A'))}$`"
     )
     
     if st.sidebar.button("🗑️ Διαγραφή Τελευταίας (Undo)"):
@@ -301,7 +301,7 @@ with tab1:
         table_data.append({
             "Asset": cmc_url,
             "Name": asset,
-            "Amount": f"{data['amount']:.6f}",
+            "Amount": f"{data['amount']:.6f} ({data['total_cost']:.2f}$)",
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
             "Curr Price": f"${stats['price']:.2f}",
