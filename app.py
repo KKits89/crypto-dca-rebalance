@@ -288,6 +288,25 @@ def calculate_new_avg(old_cost, old_amount, new_money, current_price):
     new_amount = new_money / current_price
     return (old_cost + new_money) / (old_amount + new_amount)
 
+def compute_smart_score(stats, fng):
+    sc = 50
+    if stats['rsi'] < 30:
+        sc += 25
+    elif stats['rsi'] < 42:
+        sc += 15
+    elif stats['rsi'] > 68:
+        sc -= 25
+        
+    if stats['price'] <= stats['bb_lower']:
+        sc += 20
+        
+    if fng < 30:
+        sc += 15
+    elif fng > 75:
+        sc -= 15
+        
+    return max(0, min(100, sc))
+
 try:
     eur_ticker = yf.Ticker("EURUSD=X")
     eur_rate = eur_ticker.history(period="1d")['Close'].iloc[-1]
@@ -310,7 +329,12 @@ for asset, data in portfolio_data.items():
     bb_lower = price * 0.95
     
     try:
-        ticker_str = f"{asset}-USD"
+        # Ειδικό mapping για το yFinance ticker αν χρειάζεται (π.χ. HYPE)
+        if asset == "HYPE":
+            ticker_str = "HYPE32196-USD"
+        else:
+            ticker_str = f"{asset}-USD"
+            
         hist = yf.Ticker(ticker_str).history(period="100d")
         if hist.empty or len(hist) < 15:
             hist = yf.Ticker(asset).history(period="100d")
@@ -328,19 +352,22 @@ for asset, data in portfolio_data.items():
             bb_lower = price * 0.92
 
         if not hist.empty and len(hist) >= 15:
-            rsi = get_rsi(hist['Close']).iloc[-1]
-        else:
-            avg_p = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else price
-            if price < avg_p:
-                rsi = 40.0
-            elif price > avg_p:
-                rsi = 60.0
+            rsi_series = get_rsi(hist['Close'])
+            if not rsi_series.empty and not pd.isna(rsi_series.iloc[-1]):
+                rsi = float(rsi_series.iloc[-1])
             else:
-                rsi = 50.0
+                raise Exception("Empty RSI series")
+        else:
+            raise Exception("Not enough history for RSI")
+            
     except:
-        sma_50 = price
-        rsi = 50.0
-        bb_lower = price * 0.9
+        # Fallback δυναμικός υπολογισμός RSI βάσει απόδοσης τιμής αν λείπουν τα ιστορικά yfinance
+        avg_p = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else price
+        if avg_p > 0:
+            price_diff_pct = ((price - avg_p) / avg_p) * 100
+            rsi = max(15.0, min(85.0, 50.0 - (price_diff_pct * 1.5)))
+        else:
+            rsi = 50.0
 
     val = data["amount"] * price
     avg_price = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else 0
@@ -348,7 +375,7 @@ for asset, data in portfolio_data.items():
     pnl_pct = (pnl_usd / data["total_cost"]) * 100 if data["total_cost"] > 0 else 0
     is_healthy_dip = price >= sma_50
 
-    current_values[asset] = {
+    temp_stats = {
         "price": price,
         "avg_price": avg_price,
         "current_val": val,
@@ -359,6 +386,9 @@ for asset, data in portfolio_data.items():
         "rsi": rsi,
         "is_healthy_dip": is_healthy_dip
     }
+    temp_stats["score"] = compute_smart_score(temp_stats, fng_value)
+
+    current_values[asset] = temp_stats
     total_current_portfolio += val
 
 new_total_portfolio = total_current_portfolio + new_cash_to_invest
@@ -379,6 +409,7 @@ total_strict_weight = sum(strict_allocations.values())
 if total_strict_weight == 0:
     total_strict_weight = 1.0
 
+# --- SMART BUY WEIGHTS (ΣΥΝΔΕΣΗ ΜΕ ΤΟ SMART SCORE) ---
 smart_allocations = {}
 total_smart_weight = 0
 for asset, data in portfolio_data.items():
@@ -387,17 +418,11 @@ for asset, data in portfolio_data.items():
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
     base_need = max(0, ideal_val - cur_val)
-    pnl = current_values[asset]["pnl_usd"]
-    stats = current_values[asset]
-
-    if pnl < 0 and stats["is_healthy_dip"]:
-        base_bonus = min(abs(pnl) / total_current_portfolio * 2, 0.5) if total_current_portfolio > 0 else 0
-        rsi_multiplier = 1.3 if stats["rsi"] < 40 else 1.0
-        pnl_weight = 1.0 + (base_bonus * rsi_multiplier)
-    else:
-        pnl_weight = 1.0
-
-    smart_weight = base_need * pnl_weight
+    
+    score = current_values[asset]["score"]
+    score_multiplier = max(0.1, score / 50.0)
+    
+    smart_weight = base_need * score_multiplier
     smart_allocations[asset] = smart_weight
     total_smart_weight += smart_weight
 
@@ -441,6 +466,7 @@ with tab1:
         table_data.append({
             "Coin": cmc_url,
             "Name": asset,
+            "Score": f"{stats['score']}/100",
             "Amount": f"{data['amount']:.6f} ({data['total_cost']:.2f}$)",
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
@@ -573,36 +599,27 @@ with tab4:
         
         if selected_dca_asset and selected_dca_asset in current_values:
             stats = current_values[selected_dca_asset]
-            
-            score = 50
+            score = stats["score"]
             reasons = []
             
             if stats['rsi'] < 30:
-                score += 25
                 reasons.append("🟢 RSI is Extreme Oversold (<30)")
             elif stats['rsi'] < 42:
-                score += 15
                 reasons.append("🟢 RSI is in Healthy Dip zone (30-42)")
             elif stats['rsi'] > 68:
-                score -= 25
                 reasons.append("🔴 RSI is Overbought (>68)")
             else:
                 reasons.append("🟡 RSI is Neutral")
                 
             if stats['price'] <= stats['bb_lower']:
-                score += 20
                 reasons.append("🟢 Price breached Lower Bollinger Band (Statistical Dip)")
             else:
                 reasons.append("🟡 Price is safely within bands")
                 
             if fng_value < 30:
-                score += 15
                 reasons.append("🟢 Market is in Fear/Panic (Great for accumulation)")
             elif fng_value > 75:
-                score -= 15
                 reasons.append("🔴 Market is in Extreme Greed")
-                
-            score = max(0, min(100, score))
             
             st.markdown(f"### Score Result: **{score} / 100**")
             
@@ -640,7 +657,6 @@ with tab4:
                         dollar_to_pull = target_profit_goal * weight
                         amount_to_sell = dollar_to_pull / stats["price"]
                         
-                        # Υπολογισμός ποσοστού (%) της συνολικής θέσης που πωλείται
                         total_holding_amount = portfolio_data[asset]["amount"]
                         pct_of_holding = (amount_to_sell / total_holding_amount) * 100 if total_holding_amount > 0 else 0
                         
