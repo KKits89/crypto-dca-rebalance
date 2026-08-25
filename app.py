@@ -76,7 +76,6 @@ st.markdown("""
         color: #ffffff;
     }
 
-    /* Risk Card Custom Styling for Tab 5 */
     .risk-card {
         background-color: #161b22;
         border: 1px solid #30363d;
@@ -172,7 +171,6 @@ if st.sidebar.button("Execute Order"):
     else:
         st.sidebar.error("Please fill valid asset, amount and USD cost (> 0).")
 
-# --- ΔΙΚΛΕΙΔΑ ΑΣΦΑΛΕΙΑΣ: ΕΜΦΑΝΙΣΗ & UNDO ΤΕΛΕΥΤΑΙΑΣ ΕΓΓΡΑΦΗΣ ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛡️ Risk & Undo Last")
 
@@ -262,8 +260,18 @@ def get_cmc_prices(symbols_list):
     except Exception as e:
         return {}
 
+@st.cache_data(ttl=300)
+def get_fear_and_greed():
+    try:
+        res = requests.get("https://api.alternative.me/fng/?limit=1")
+        data = res.json()
+        return int(data["data"][0]["value"]), data["data"][0]["value_classification"]
+    except:
+        return 50, "Neutral"
+
 all_symbols = list(portfolio_data.keys())
 cmc_prices = get_cmc_prices(all_symbols) if all_symbols else {}
+fng_value, fng_label = get_fear_and_greed()
 
 def get_rsi(series, period=14):
     delta = series.diff()
@@ -299,6 +307,7 @@ for asset, data in portfolio_data.items():
     
     rsi = 50.0
     sma_50 = price
+    bb_lower = price * 0.95
     
     try:
         ticker_str = f"{asset}-USD"
@@ -311,6 +320,13 @@ for asset, data in portfolio_data.items():
         else:
             sma_50 = price
             
+        if not hist.empty and len(hist) >= 20:
+            rolling_mean = hist['Close'].rolling(window=20).mean().iloc[-1]
+            rolling_std = hist['Close'].rolling(window=20).std().iloc[-1]
+            bb_lower = rolling_mean - (2 * rolling_std)
+        else:
+            bb_lower = price * 0.92
+
         if not hist.empty and len(hist) >= 15:
             rsi = get_rsi(hist['Close']).iloc[-1]
         else:
@@ -324,6 +340,7 @@ for asset, data in portfolio_data.items():
     except:
         sma_50 = price
         rsi = 50.0
+        bb_lower = price * 0.9
 
     val = data["amount"] * price
     avg_price = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else 0
@@ -338,6 +355,7 @@ for asset, data in portfolio_data.items():
         "pnl_usd": pnl_usd,
         "pnl_pct": pnl_pct,
         "sma_50": sma_50,
+        "bb_lower": bb_lower,
         "rsi": rsi,
         "is_healthy_dip": is_healthy_dip
     }
@@ -391,7 +409,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Portfolio Dashboard", 
     "📈 Performance Charts", 
     "📋 Ledger & Trades", 
-    "🛠 Simulator",
+    "🛠 Smart Advisor & Profit Engine",
     "🛡️ Risk & Exit Strategy"
 ])
 
@@ -483,44 +501,22 @@ with tab2:
                     timeline_df['Portfolio_Value'] = [total_current_portfolio]
 
                 fig_timeline = go.Figure()
-                
                 fig_timeline.add_trace(go.Scatter(
-                    x=timeline_df[date_col], 
-                    y=timeline_df['Cumulative_Cost'],
-                    mode='lines',
-                    name='Invested Cost ($)',
-                    line=dict(color='#8b949e', width=2)
+                    x=timeline_df[date_col], y=timeline_df['Cumulative_Cost'],
+                    mode='lines', name='Invested Cost ($)', line=dict(color='#8b949e', width=2)
                 ))
-                
                 fig_timeline.add_trace(go.Scatter(
-                    x=timeline_df[date_col], 
-                    y=timeline_df['Portfolio_Value'],
-                    mode='lines',
-                    name='Portfolio Value ($)',
-                    line=dict(color='#58a6ff', width=2.5),
-                    fill='tonexty',
-                    fillcolor='rgba(88, 166, 255, 0.05)'
+                    x=timeline_df[date_col], y=timeline_df['Portfolio_Value'],
+                    mode='lines', name='Portfolio Value ($)', line=dict(color='#58a6ff', width=2.5),
+                    fill='tonexty', fillcolor='rgba(88, 166, 255, 0.05)'
                 ))
-                
                 fig_timeline.update_layout(
                     title="Portfolio Valuation vs Basis Cost",
-                    xaxis_title="",
-                    yaxis_title="USD ($)",
-                    paper_bgcolor="#0e1117",
-                    plot_bgcolor="#161b22",
-                    font_color="#e6e6e6",
+                    xaxis_title="", yaxis_title="USD ($)",
+                    paper_bgcolor="#0e1117", plot_bgcolor="#161b22", font_color="#e6e6e6",
                     hovermode="x unified",
-                    xaxis=dict(
-                        type='date', 
-                        gridcolor='#484f58', 
-                        gridwidth=1.5, 
-                        griddash='dash'
-                    ),
-                    yaxis=dict(
-                        gridcolor='#484f58', 
-                        gridwidth=1.5, 
-                        griddash='dash'
-                    )
+                    xaxis=dict(type='date', gridcolor='#484f58', gridwidth=1.5, griddash='dash'),
+                    yaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash')
                 )
                 st.plotly_chart(fig_timeline, width='stretch')
         except Exception as e:
@@ -531,60 +527,28 @@ with tab2:
     
     with col_chart1:
         if current_values:
-            brand_colors = {
-                "BTC": "#F7931A",
-                "ETH": "#627EEA",
-                "SOL": "#9945FF",
-                "HYPE": "#4EEDCC",
-                "ZEC": "#F4B728"
-            }
-            
+            brand_colors = {"BTC": "#F7931A", "ETH": "#627EEA", "SOL": "#9945FF", "HYPE": "#4EEDCC", "ZEC": "#F4B728"}
             assets_in_pie = list(current_values.keys())
-            
             fig_pie = px.pie(
-                names=assets_in_pie,
-                values=[info["current_val"] for info in current_values.values()],
-                title="Asset Share Distribution",
-                hole=0.5,
-                color=assets_in_pie,
-                color_discrete_map=brand_colors
+                names=assets_in_pie, values=[info["current_val"] for info in current_values.values()],
+                title="Asset Share Distribution", hole=0.5, color=assets_in_pie, color_discrete_map=brand_colors
             )
-            fig_pie.update_layout(
-                paper_bgcolor="#0e1117", 
-                font_color="#e6e6e6",
-                legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#30363d")
-            )
+            fig_pie.update_layout(paper_bgcolor="#0e1117", font_color="#e6e6e6", legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#30363d"))
             st.plotly_chart(fig_pie, width='stretch')
-        else:
-            st.info("No assets available.")
         
     with col_chart2:
         if current_values:
             assets_list = list(current_values.keys())
             pnl_values = [info["pnl_usd"] for info in current_values.values()]
             colors = ['#238636' if v >= 0 else '#da3633' for v in pnl_values]
-            
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
-            
             fig_bar.update_layout(
                 title="PnL Breakdown per Asset ($)",
-                paper_bgcolor="#0e1117",
-                plot_bgcolor="#161b22",
-                font_color="#e6e6e6",
-                xaxis=dict(
-                    gridcolor='#484f58', 
-                    gridwidth=1.5, 
-                    griddash='dash'
-                ),
-                yaxis=dict(
-                    gridcolor='#484f58', 
-                    gridwidth=1.5, 
-                    griddash='dash'
-                )
+                paper_bgcolor="#0e1117", plot_bgcolor="#161b22", font_color="#e6e6e6",
+                xaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash'),
+                yaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash')
             )
             st.plotly_chart(fig_bar, width='stretch')
-        else:
-            st.info("No data available.")
 
 with tab3:
     st.markdown("### 📋 Transaction Ledgers")
@@ -596,38 +560,105 @@ with tab3:
         st.info("No recorded transactions.")
 
 with tab4:
-    st.markdown("### 🛠 Rebalancing Simulator")
-    sim_cash = st.number_input("Simulator Capital ($)", value=100.0, step=10.0, key="sim_cash")
+    st.markdown("### 🧠 Smart DCA Advisor & Profit Extractor")
     
-    new_targets = {}
-    col_s1, col_s2 = st.columns(2)
+    col_adv_1, col_adv_2 = st.columns(2)
     
-    for asset, data in portfolio_data.items():
-        if data["amount"] <= 0:
-            continue
-        new_targets[asset] = col_s1.slider(
-            f"Target % [{asset}]", 
-            0.0, 1.0, float(data.get("target_pct", 0.1)), key=f"slider_{asset}"
-        )
+    with col_adv_1:
+        st.markdown("#### 🤖 Smart DCA Timing & Scoring Engine")
+        st.caption(f"Global Market Sentiment (Fear & Greed): **{fng_value}/100 ({fng_label})**")
         
-    if st.button("Run Simulation"):
-        sim_results = []
-        for asset, data in portfolio_data.items():
-            if data["amount"] <= 0:
-                continue
-            stats = current_values[asset]
-            simulated_buy = sim_cash * new_targets[asset]
-            old_avg = stats['avg_price']
-            new_avg = calculate_new_avg(data['total_cost'], data['amount'], simulated_buy, stats['price'])
+        selected_dca_asset = st.selectbox("Select Asset to Evaluate for DCA:", list(current_values.keys()))
+        test_dca_amount = st.number_input("Amount to Put ($)", value=100.0, step=10.0, key="smart_dca_amt")
+        
+        if selected_dca_asset and selected_dca_asset in current_values:
+            stats = current_values[selected_dca_asset]
             
-            sim_results.append({
-                "Asset": asset,
-                "Old Avg": f"${old_avg:.2f}",
-                "Sim Buy": f"${simulated_buy:.2f}",
-                "New Avg Price": f"${new_avg:.2f}"
-            })
-        col_s2.table(pd.DataFrame(sim_results))
-        col_s2.success("Simulation computed.")
+            # Υπολογισμός Score (0 - 100)
+            score = 50
+            reasons = []
+            
+            # 1. RSI Scoring
+            if stats['rsi'] < 30:
+                score += 25
+                reasons.append("🟢 RSI is Extreme Oversold (<30)")
+            elif stats['rsi'] < 42:
+                score += 15
+                reasons.append("🟢 RSI is in Healthy Dip zone (30-42)")
+            elif stats['rsi'] > 68:
+                score -= 25
+                reasons.append("🔴 RSI is Overbought (>68)")
+            else:
+                reasons.append("🟡 RSI is Neutral")
+                
+            # 2. Bollinger Bands Scoring
+            if stats['price'] <= stats['bb_lower']:
+                score += 20
+                reasons.append("🟢 Price breached Lower Bollinger Band (Statistical Dip)")
+            else:
+                reasons.append("🟡 Price is safely within bands")
+                
+            # 3. Fear & Greed Scoring
+            if fng_value < 30:
+                score += 15
+                reasons.append("🟢 Market is in Fear/Panic (Great for accumulation)")
+            elif fng_value > 75:
+                score -= 15
+                reasons.append("🔴 Market is in Extreme Greed")
+                
+            score = max(0, min(100, score))
+            
+            st.markdown(f"### Score Result: **{score} / 100**")
+            
+            if score >= 70:
+                st.success("🟢 **STRONG BUY SIGNAL:** Εξαιρετική ευκαιρία! Η στατιστική και η τεχνική ανάλυση δείχνουν τοπικό πάτο. Βάλτα **όλα** τώρα.")
+            elif score >= 45:
+                st.warning("🟡 **BALANCED DCA (DCA σε δόσεις):** Η αγορά είναι ουδέτερη. Καλύτερα να βάλεις τα μισά τώρα και τα υπόλοιπα αργότερα.")
+            else:
+                st.error("🔴 **HOLD CASH / OVERBOUGHT:** Αποφυγή αγοράς τώρα. Η τιμή είναι ψηλά ή η τάση είναι επικίνδυνη.")
+                
+            with st.expander("🔍 View Technical Breakdown"):
+                for r in reasons:
+                    st.markdown(f"- {r}")
+                    
+    with col_adv_2:
+        st.markdown("#### 🎯 Target Profit Extractor (Take Profit)")
+        st.caption(f"Total Portfolio Net PnL: **${total_pnl_usd:+,.2f}**")
+        
+        target_profit_goal = st.number_input("Desired Net Profit to Extract ($)", value=200.0, step=50.0, key="target_profit_goal")
+        
+        if total_pnl_usd > 0:
+            if target_profit_goal > total_pnl_usd:
+                st.warning(f"⚠️ Ο στόχος σου (${target_profit_goal}) είναι μεγαλύτερος από το συνολικό τρέχον κέρδος σου (${total_pnl_usd:,.2f}).")
+            else:
+                st.markdown("##### Προτεινόμενη εκτέλεση για κατοχύρωση κέρδους:")
+                
+                # Βρίσκουμε ποια assets είναι κερδοφόρα
+                profitable_assets = {k: v for k, v in current_values.items() if v["pnl_usd"] > 0}
+                
+                if profitable_assets:
+                    # Υπολογίζουμε ποσοστό συνεισφοράς στο κέρδος
+                    total_prof_sum = sum(v["pnl_usd"] for v in profitable_assets.values())
+                    
+                    extract_data = []
+                    for asset, stats in profitable_assets.items():
+                        weight = stats["pnl_usd"] / total_prof_sum
+                        dollar_to_pull = target_profit_goal * weight
+                        amount_to_sell = dollar_to_pull / stats["price"]
+                        
+                        extract_data.append({
+                            "Asset": asset,
+                            "Sell Amount": f"{amount_to_sell:.6f} {asset}",
+                            "Est. Cash Back": f"${dollar_to_pull:,.2f}",
+                            "Current Price": f"${stats['price']:,.2f}"
+                        })
+                        
+                    st.table(pd.DataFrame(extract_data))
+                    st.info("💡 Με αυτή την αναλογική πώληση, κατοχυρώνεις ακριβώς το ποσό κέρδους που ζήτησες διατηρώντας ισορροπημένο το χαρτοφυλάκιό σου.")
+                else:
+                    st.warning("Δεν υπάρχουν κερδοφόρα assets αυτή τη στιγμή για πώληση.")
+        else:
+            st.error("Το συνολικό χαρτοφυλάκιο είναι σε αρνητικό PnL, οπότε δεν υπάρχει κέρδος προς κατοχύρωση.")
 
 with tab5:
     st.markdown("### 🛡️ Risk & Exit Strategy Terminal")
@@ -649,7 +680,6 @@ with tab5:
         base_price = curr_p if "Current" in calc_basis else avg_p
         basis_label = "Current Price" if "Current" in calc_basis else "Avg Cost"
         
-        # Καθαρότερη δομή κάρτας με ξεχωριστό πλαίσιο για κάθε asset
         with st.container():
             st.markdown(f"""
                 <div style="background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 18px; margin-bottom: 16px;">
@@ -671,7 +701,6 @@ with tab5:
                 
                 sl_portfolio_value = total_amt * sl_price
                 sl_pnl_usd = sl_portfolio_value - total_cst
-                sl_pnl_eur = sl_pnl_usd * usd_to_eur
                 sl_pnl_pct = (sl_pnl_usd / total_cst) * 100 if total_cst > 0 else 0
                 
                 st.markdown(f"Target: <span style='color: #ff7b72; font-weight: bold;'>${sl_price:,.2f} ({sl_pct}%)</span>", unsafe_allow_html=True)
@@ -684,7 +713,6 @@ with tab5:
                 
                 tp_portfolio_value = total_amt * tp_price
                 tp_pnl_usd = tp_portfolio_value - total_cst
-                tp_pnl_eur = tp_pnl_usd * usd_to_eur
                 tp_pnl_pct = (tp_pnl_usd / total_cst) * 100 if total_cst > 0 else 0
                 
                 st.markdown(f"Target: <span style='color: #3fb950; font-weight: bold;'>${tp_price:,.2f} (+{tp_pct}%)</span>", unsafe_allow_html=True)
@@ -697,10 +725,7 @@ with tab5:
             else:
                 status = "🟢 ACTIVE"
                 
-            if sl_price < curr_p:
-                distance_to_sl_pct = ((curr_p - sl_price) / curr_p) * 100
-            else:
-                distance_to_sl_pct = 0.0
+            distance_to_sl_pct = ((curr_p - sl_price) / curr_p) * 100 if sl_price < curr_p else 0.0
                 
             st.markdown(f"<div style='margin-top: 10px; font-size: 13px; color: #8b949e;'>Status: <b>{status}</b> | Distance to SL: <b>{distance_to_sl_pct:.1f}%</b></div>", unsafe_allow_html=True)
             st.markdown("---")
