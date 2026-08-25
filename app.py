@@ -494,7 +494,7 @@ with tab2:
                     fillcolor='rgba(88, 166, 255, 0.05)'
                 ))
                 
-                # Gridlines (διακεκομμένες γραμμές) στο timeline γράφημα
+                # Πιο έντονες διακεκομμένες γραμμές (gridlines) στο timeline γράφημα
                 fig_timeline.update_layout(
                     title="Portfolio Valuation vs Basis Cost",
                     xaxis_title="",
@@ -505,13 +505,13 @@ with tab2:
                     hovermode="x unified",
                     xaxis=dict(
                         type='date', 
-                        gridcolor='#30363d', 
-                        gridwidth=1, 
+                        gridcolor='#484f58', 
+                        gridwidth=1.5, 
                         griddash='dash'
                     ),
                     yaxis=dict(
-                        gridcolor='#30363d', 
-                        gridwidth=1, 
+                        gridcolor='#484f58', 
+                        gridwidth=1.5, 
                         griddash='dash'
                     )
                 )
@@ -524,8 +524,6 @@ with tab2:
     
     with col_chart1:
         if current_values:
-            # Official/Brand Colors based on uploaded logos:
-            # BTC: Orange (#F7931A), ETH: Blue (#627EEA), SOL: Purple/Cyan gradient look, HYPE: Mint/Teal (#4EEDCC), ZEC: Yellow (#F4B728)
             brand_colors = {
                 "BTC": "#F7931A",
                 "ETH": "#627EEA",
@@ -535,7 +533,6 @@ with tab2:
             }
             
             assets_in_pie = list(current_values.keys())
-            pie_colors = [brand_colors.get(asset, "#8b949e") for asset in assets_in_pie]
             
             fig_pie = px.pie(
                 names=assets_in_pie,
@@ -562,20 +559,20 @@ with tab2:
             
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
             
-            # Gridlines (διακεκομμένες γραμμές) στο PnL Bar Chart
+            # Πιο έντονες διακεκομμένες γραμμές (gridlines) στο Bar Chart
             fig_bar.update_layout(
                 title="PnL Breakdown per Asset ($)",
                 paper_bgcolor="#0e1117",
                 plot_bgcolor="#161b22",
                 font_color="#e6e6e6",
                 xaxis=dict(
-                    gridcolor='#30363d', 
-                    gridwidth=1, 
+                    gridcolor='#484f58', 
+                    gridwidth=1.5, 
                     griddash='dash'
                 ),
                 yaxis=dict(
-                    gridcolor='#30363d', 
-                    gridwidth=1, 
+                    gridcolor='#484f58', 
+                    gridwidth=1.5, 
                     griddash='dash'
                 )
             )
