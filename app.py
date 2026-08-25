@@ -329,7 +329,6 @@ for asset, data in portfolio_data.items():
     bb_lower = price * 0.95
     
     try:
-        # Ειδικό mapping για το yFinance ticker αν χρειάζεται (π.χ. HYPE)
         if asset == "HYPE":
             ticker_str = "HYPE32196-USD"
         else:
@@ -361,7 +360,6 @@ for asset, data in portfolio_data.items():
             raise Exception("Not enough history for RSI")
             
     except:
-        # Fallback δυναμικός υπολογισμός RSI βάσει απόδοσης τιμής αν λείπουν τα ιστορικά yfinance
         avg_p = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else price
         if avg_p > 0:
             price_diff_pct = ((price - avg_p) / avg_p) * 100
@@ -466,7 +464,6 @@ with tab1:
         table_data.append({
             "Coin": cmc_url,
             "Name": asset,
-            "Score": f"{stats['score']}/100",
             "Amount": f"{data['amount']:.6f} ({data['total_cost']:.2f}$)",
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
