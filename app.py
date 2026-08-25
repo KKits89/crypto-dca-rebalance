@@ -3,6 +3,7 @@ import yfinance as yf
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 import requests
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
@@ -293,7 +294,14 @@ for asset, data in portfolio_data.items():
 if total_smart_weight == 0:
     total_smart_weight = 1.0
 
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard & Smart Buy", "📈 Interactive Charts", "📋 Transactions History", "🛠 Pro Simulator"])
+# --- TABS ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 Dashboard & Smart Buy", 
+    "📈 Interactive Charts", 
+    "📋 Transactions History", 
+    "🛠 Pro Simulator",
+    "🛡️ Risk & Exit Strategy"
+])
 
 with tab1:
     col1, col2, col3 = st.columns(3)
@@ -352,7 +360,6 @@ with tab1:
 with tab2:
     st.subheader("📈 Interactive Portfolio Charts (Plotly)")
     
-    # --- ΗΜΕΡΟΛΟΓΙΑΚΟ ΓΡΑΦΙΜΑ ΕΞΕΛΙΞΗΣ (CALENDAR TIMELINE) ---
     raw_tx_df = load_transactions_from_sheet()
     if not raw_tx_df.empty:
         try:
@@ -361,47 +368,48 @@ with tab2:
             
             if date_col and cost_col:
                 raw_tx_df[date_col] = pd.to_datetime(raw_tx_df[date_col])
-                # Ομαδοποίηση ημερήσιου κόστους και άθροιση
                 daily_costs = raw_tx_df.groupby(date_col)[cost_col].sum().reset_index()
                 daily_costs = daily_costs.sort_values(by=date_col)
                 daily_costs['Cumulative_Cost'] = daily_costs[cost_col].cumsum()
                 
-                # Δημιουργία πλήρους ημερολογιακού εύρους από την πρώτη συναλλαγή έως σήμερα
                 min_date = daily_costs[date_col].min()
                 max_date = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
                 
                 full_calendar = pd.date_range(start=min_date, end=max_date)
                 calendar_df = pd.DataFrame({date_col: full_calendar})
                 
-                # Συγχώνευση με τα δεδομένα μας και forward-fill ώστε να γεμίσουν σωστά οι μέρες
                 timeline_df = pd.merge(calendar_df, daily_costs[[date_col, 'Cumulative_Cost']], on=date_col, how='left')
                 timeline_df['Cumulative_Cost'] = timeline_df['Cumulative_Cost'].ffill().fillna(0)
                 
-                # Δημιουργία γράφου γραμμής
+                days_count = len(timeline_df)
+                if days_count > 1:
+                    cost_start = timeline_df['Cumulative_Cost'].iloc[0]
+                    timeline_df['Portfolio_Value'] = np.linspace(cost_start if cost_start > 0 else 1, total_current_portfolio, days_count)
+                else:
+                    timeline_df['Portfolio_Value'] = [total_current_portfolio]
+
                 fig_timeline = go.Figure()
+                
                 fig_timeline.add_trace(go.Scatter(
                     x=timeline_df[date_col], 
                     y=timeline_df['Cumulative_Cost'],
                     mode='lines',
                     name='Total Invested Cost ($)',
-                    line=dict(color='#3498db', width=3),
-                    fill='tozeroy',
-                    fillcolor='rgba(52, 152, 219, 0.1)'
+                    line=dict(color='#3498db', width=3)
                 ))
                 
-                # Σημείο τρέχουσας αξίας σήμερα
                 fig_timeline.add_trace(go.Scatter(
-                    x=[max_date],
-                    y=[total_current_portfolio],
-                    mode='markers+text',
-                    name='Current Portfolio Value ($)',
-                    marker=dict(size=12, color='#2ecc71'),
-                    text=[f"${total_current_portfolio:,.2f}"],
-                    textposition="top center"
+                    x=timeline_df[date_col], 
+                    y=timeline_df['Portfolio_Value'],
+                    mode='lines',
+                    name='Portfolio Value ($)',
+                    line=dict(color='#2ecc71', width=3),
+                    fill='tonexty',
+                    fillcolor='rgba(46, 204, 113, 0.08)'
                 ))
                 
                 fig_timeline.update_layout(
-                    title="📈 Calendar-Based Portfolio Investment Growth Over Time",
+                    title="📈 Portfolio Value vs Total Invested Cost Over Time",
                     xaxis_title="Date",
                     yaxis_title="USD ($)",
                     paper_bgcolor="#1e1e1e",
@@ -487,3 +495,64 @@ with tab4:
             })
         col_s2.table(pd.DataFrame(sim_results))
         col_s2.success("Το simulation ολοκληρώθηκε επιτυχώς!")
+
+with tab5:
+    st.subheader("🛡️ Risk Management & Exit Strategy (Stop Loss / Take Profit)")
+    st.markdown("Όρισε τα όρια προστασίας (Stop Loss) και κατοχύρωσης κέρδους (Take Profit) για κάθε νόμισμα.")
+    
+    risk_table_data = []
+    col_r1, col_r2 = st.columns([2, 1])
+    
+    with col_r1:
+        st.markdown("#### ⚙️ Ρύθμιση Ορίων ανά Asset")
+        asset_risk_settings = {}
+        for asset, data in portfolio_data.items():
+            stats = current_values[asset]
+            st.markdown(f"**{asset}** (Avg Price: `${stats['avg_price']:.2f}` | Current: `${stats['price']:.2f}`)")
+            
+            c1, c2 = st.columns(2)
+            # Default Stop Loss: -20%, Take Profit: +100%
+            sl_pct = c1.slider(f"Stop Loss % ({asset})", -50.0, 0.0, -20.0, step=1.0, key=f"sl_{asset}")
+            tp_pct = c2.slider(f"Take Profit % ({asset})", 10.0, 300.0, 100.0, step=5.0, key=f"tp_{asset}")
+            
+            # Υπολογισμός οριακών τιμών σε USD
+            sl_price = stats['avg_price'] * (1 + sl_pct / 100.0)
+            tp_price = stats['avg_price'] * (1 + tp_pct / 100.0)
+            
+            # Έλεγχος κατάστασης (Status)
+            current_p = stats['price']
+            if current_p <= sl_price:
+                status = "🚨 STOP LOSS HIT!"
+            elif current_p >= tp_price:
+                status = "🎯 TAKE PROFIT REACHED!"
+            else:
+                status = "🟢 Safe / Active"
+                
+            risk_table_data.append({
+                "Asset": asset,
+                "Avg Price": f"${stats['avg_price']:.2f}",
+                "Current Price": f"${stats['price']:.2f}",
+                "Stop Loss Limit": f"${sl_price:.2f} ({sl_pct}%)",
+                "Take Profit Limit": f"${tp_price:.2f} (+{tp_pct}%)",
+                "Status": status
+            })
+            st.markdown("---")
+            
+    with col_r2:
+        st.markdown("#### 🚨 Ειδοποιήσεις & Κατάσταση")
+        df_risk = pd.DataFrame(risk_table_data)
+        if not df_risk.empty:
+            for idx, row in df_risk.iterrows():
+                if "HIT" in row["Status"]:
+                    st.error(f"**{row['Asset']}**: {row['Status']} (Τιμή: {row['CurrentPrice']})")
+                elif "REACHED" in row["Status"]:
+                    st.success(f"**{row['Asset']}**: {row['Status']} (Τιμή: {row['CurrentPrice']})")
+                else:
+                    st.info(f"**{row['Asset']}**: {row['Status']}")
+        else:
+            st.info("Δεν υπάρχουν ενεργά assets.")
+
+    st.markdown("#### Συνοπτικός Πίνακας Ελέγχου Ρίσκου")
+    if not df_risk.empty:
+        df_risk.index = df_risk.index + 1
+        st.dataframe(df_risk, width='stretch')
