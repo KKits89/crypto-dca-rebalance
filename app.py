@@ -62,35 +62,43 @@ def get_latest_transaction_date(df):
                     return str(valid_dates.max())
     return "Καμία"
 
-# --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
-st.sidebar.title("🤖 DCA Settings")
+# --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ (BUY / SELL) ---
+st.sidebar.title("🤖 DCA & Trade Management")
 
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("📝 Add New Transaction")
+st.sidebar.subheader("📝 New Transaction")
 
 raw_df_initial = load_transactions_from_sheet()
 latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.info(f"📅 Τελευταία συναλλαγή: **{latest_date}**")
 
+tx_type = st.sidebar.radio("Τύπος Συναλλαγής:", ["🟢 Αγορά (BUY)", "🔴 Πώληση (SELL)"], horizontal=True)
+
 asset_input = st.sidebar.text_input("Asset (π.χ. BTC ή XRP)", "BTC").upper().strip()
-amount_input = st.sidebar.number_input("Amount Bought", value=0.0, format="%.6f")
-cost_input = st.sidebar.number_input("USD Cost ($)", value=0.0, format="%.2f")
+amount_input = st.sidebar.number_input("Amount", value=0.0, format="%.6f")
+cost_input = st.sidebar.number_input("USD Total ($)", value=0.0, format="%.2f")
 
 if st.sidebar.button("Save Transaction"):
     if amount_input > 0 and cost_input > 0 and asset_input:
         t_date = datetime.now().strftime("%Y-%m-%d")
+        
+        # Αν είναι πώληση, καταγράφουμε αρνητικό ποσό και αρνητικό κόστος (μείωση θέσης)
+        final_amount = -amount_input if "SELL" in tx_type else amount_input
+        final_cost = -cost_input if "SELL" in tx_type else cost_input
+        
         try:
             sheet = get_g_sheet()
-            sheet.append_row([t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}"])
+            sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
             st.cache_data.clear()
-            st.sidebar.success(f"Καταγράφηκε επιτυχώς στο Google Sheet: {amount_input} {asset_input}!")
+            action_name = "Πώληση" if "SELL" in tx_type else "Αγορά"
+            st.sidebar.success(f"Η {action_name} καταγράφηκε επιτυχώς στο Google Sheet!")
             st.rerun()
         except Exception as e:
             st.sidebar.error(f"Σφάλμα αποθήκευσης: {e}")
     else:
-        st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και κόστος μεγαλύτερο από 0.")
+        st.sidebar.error("Συμπλήρωσε νόμισμα, ποσό και ποσό USD μεγαλύτερο από 0.")
 
 # --- ΔΙΚΛΕΙΔΑ ΑΣΦΑΛΕΙΑΣ: ΕΜΦΑΝΙΣΗ & UNDO ΤΕΛΕΥΤΑΙΑΣ ΕΓΓΡΑΦΗΣ ---
 st.sidebar.markdown("---")
@@ -133,6 +141,7 @@ def load_portfolio():
     col_amount = next((c for c in df.columns if 'amount' in c.lower()), 'Amount')
     col_cost = next((c for c in df.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
     
+    # Το groupby θα αθροίσει σωστά θετικά (αγορές) και αρνητικά (πωλήσεις)
     summary = df.groupby(col_asset).agg({col_amount: 'sum', col_cost: 'sum'}).to_dict('index')
 
     default_settings = {
@@ -145,9 +154,13 @@ def load_portfolio():
 
     formatted_summary = {}
     for asset, data in summary.items():
+        # Αν κάποιος πούλησε τα πάντα (amount <= 0), μπορούμε να το παραλείψουμε ή να το δείξουμε με 0
+        amt = float(data[col_amount])
+        cst = float(data[col_cost])
+        
         formatted_summary[asset] = {
-            'total_cost': float(data[col_cost]),
-            'amount': float(data[col_amount])
+            'total_cost': cst,
+            'amount': amt
         }
         if asset in default_settings:
             formatted_summary[asset].update(default_settings[asset])
@@ -190,6 +203,8 @@ def get_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 def calculate_new_avg(old_cost, old_amount, new_money, current_price):
+    if old_amount <= 0:
+        return current_price
     if new_money <= 0 or current_price <= 0:
         return old_cost / old_amount if old_amount > 0 else 0
     new_amount = new_money / current_price
@@ -204,9 +219,12 @@ except:
 
 current_values = {}
 total_current_portfolio = 0
-total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values()) if portfolio_data else 0
+total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values() if d["amount"] > 0) if portfolio_data else 0
 
 for asset, data in portfolio_data.items():
+    if data["amount"] <= 0:
+        continue # Αν μηδενίσαμε τη θέση, δεν υπολογίζεται στην τρέχουσα αξία
+        
     price = cmc_prices.get(asset, data["total_cost"] / data["amount"] if data["amount"] > 0 else 0)
     
     rsi = 50.0
@@ -263,6 +281,8 @@ total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100 if total_invested_co
 
 strict_allocations = {}
 for asset, data in portfolio_data.items():
+    if data["amount"] <= 0:
+        continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
     strict_allocations[asset] = max(0, ideal_val - cur_val)
@@ -274,6 +294,8 @@ if total_strict_weight == 0:
 smart_allocations = {}
 total_smart_weight = 0
 for asset, data in portfolio_data.items():
+    if data["amount"] <= 0:
+        continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
     base_need = max(0, ideal_val - cur_val)
@@ -314,10 +336,12 @@ with tab1:
 
     table_data = []
     for asset, data in portfolio_data.items():
+        if data["amount"] <= 0:
+            continue
         stats = current_values[asset]
-        strict_share = strict_allocations[asset] / total_strict_weight
+        strict_share = strict_allocations.get(asset, 0) / total_strict_weight
         strict_buy = new_cash_to_invest * strict_share
-        smart_share = smart_allocations[asset] / total_smart_weight
+        smart_share = smart_allocations.get(asset, 0) / total_smart_weight
         smart_buy = new_cash_to_invest * smart_share
         
         new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
@@ -436,7 +460,7 @@ with tab2:
             fig_pie.update_layout(paper_bgcolor="#1e1e1e", font_color="white")
             st.plotly_chart(fig_pie, width='stretch')
         else:
-            st.info("Δεν υπάρχουν δεδομένα για γράφημα.")
+            st.info("Δεν υπάρχουν ενεργά assets για γράφημα.")
         
     with col_chart2:
         if current_values:
@@ -474,6 +498,8 @@ with tab4:
     col_s1, col_s2 = st.columns(2)
     
     for asset, data in portfolio_data.items():
+        if data["amount"] <= 0:
+            continue
         new_targets[asset] = col_s1.slider(
             f"Target % for {asset}", 
             0.0, 1.0, float(data.get("target_pct", 0.1)), key=f"slider_{asset}"
@@ -482,6 +508,8 @@ with tab4:
     if st.button("Run Simulation"):
         sim_results = []
         for asset, data in portfolio_data.items():
+            if data["amount"] <= 0:
+                continue
             stats = current_values[asset]
             simulated_buy = sim_cash * new_targets[asset]
             old_avg = stats['avg_price']
@@ -498,61 +526,78 @@ with tab4:
 
 with tab5:
     st.subheader("🛡️ Risk Management & Exit Strategy (Stop Loss / Take Profit)")
-    st.markdown("Όρισε τα όρια προστασίας (Stop Loss) και κατοχύρωσης κέρδους (Take Profit) για κάθε νόμισμα.")
+    st.markdown("Όρισε τα όρια προστασίας και στόχου κέρδους. Οι τιμές σε USD υπολογίζονται ζωντανά βάσει της επιλεγμένης βάσης.")
+    
+    calc_basis = st.radio("📊 Βάση Υπολογισμού Ορίων:", ["Τρέχουσα Τιμή (Current Price - Δυναμικό)", "Μέσο Κόστος (Avg Cost - Σταθερό)"], horizontal=True)
+    
+    st.markdown("---")
     
     risk_table_data = []
-    col_r1, col_r2 = st.columns([2, 1])
     
-    with col_r1:
-        st.markdown("#### ⚙️ Ρύθμιση Ορίων ανά Asset")
-        asset_risk_settings = {}
-        for asset, data in portfolio_data.items():
-            stats = current_values[asset]
-            st.markdown(f"**{asset}** (Avg Price: `${stats['avg_price']:.2f}` | Current: `${stats['price']:.2f}`)")
+    for asset, data in portfolio_data.items():
+        if data["amount"] <= 0:
+            continue
+        stats = current_values[asset]
+        curr_p = stats['price']
+        avg_p = stats['avg_price']
+        
+        base_price = curr_p if "Τρέχουσα" in calc_basis else avg_p
+        basis_label = "Current Price" if "Τρέχουσα" in calc_basis else "Avg Price"
+        
+        with st.container():
+            col_info, col_sl, col_tp = st.columns([1.5, 2, 2])
             
-            c1, c2 = st.columns(2)
-            # Default Stop Loss: -20%, Take Profit: +100%
-            sl_pct = c1.slider(f"Stop Loss % ({asset})", -50.0, 0.0, -20.0, step=1.0, key=f"sl_{asset}")
-            tp_pct = c2.slider(f"Take Profit % ({asset})", 10.0, 300.0, 100.0, step=5.0, key=f"tp_{asset}")
+            with col_info:
+                st.markdown(f"### 🪙 {asset}")
+                st.markdown(f"**Current:** `${curr_p:,.2f}`")
+                st.markdown(f"**Avg Cost:** `${avg_p:,.2f}`")
+                
+            with col_sl:
+                st.markdown(f"🔻 **Stop Loss** (Βάση: {basis_label})")
+                sl_pct = st.slider(f"SL % ({asset})", -50.0, -1.0, -15.0, step=1.0, key=f"sl_{asset}")
+                sl_price = base_price * (1 + sl_pct / 100.0)
+                st.markdown(f"🎯 Τιμή ενεργοποίησης SL: **`${sl_price:,.2f}`**")
+                
+            with col_tp:
+                st.markdown(f"🎯 **Take Profit** (Βάση: {basis_label})")
+                tp_pct = st.slider(f"TP % ({asset})", 5.0, 300.0, 50.0, step=5.0, key=f"tp_{asset}")
+                tp_price = base_price * (1 + tp_pct / 100.0)
+                st.markdown(f"🎯 Τιμή ενεργοποίησης TP: **`${tp_price:,.2f}`**")
             
-            # Υπολογισμός οριακών τιμών σε USD
-            sl_price = stats['avg_price'] * (1 + sl_pct / 100.0)
-            tp_price = stats['avg_price'] * (1 + tp_pct / 100.0)
-            
-            # Έλεγχος κατάστασης (Status)
-            current_p = stats['price']
-            if current_p <= sl_price:
+            if curr_p <= sl_price:
                 status = "🚨 STOP LOSS HIT!"
-            elif current_p >= tp_price:
+            elif curr_p >= tp_price:
                 status = "🎯 TAKE PROFIT REACHED!"
             else:
                 status = "🟢 Safe / Active"
                 
+            if sl_price < curr_p:
+                distance_to_sl_pct = ((curr_p - sl_price) / curr_p) * 100
+            else:
+                distance_to_sl_pct = 0.0
+                
+            st.markdown(f"**Κατάσταση:** `{status}` | Απόσταση απο Stop Loss: `{distance_to_sl_pct:.1f}%`")
+            
             risk_table_data.append({
                 "Asset": asset,
-                "Avg Price": f"${stats['avg_price']:.2f}",
-                "Current Price": f"${stats['price']:.2f}",
-                "Stop Loss Limit": f"${sl_price:.2f} ({sl_pct}%)",
-                "Take Profit Limit": f"${tp_price:.2f} (+{tp_pct}%)",
+                "Basis": basis_label,
+                "Current Price": f"${curr_p:,.2f}",
+                "Stop Loss Target": f"${sl_price:,.2f} ({sl_pct}%)",
+                "Take Profit Target": f"${tp_price:,.2f} (+{tp_pct}%)",
                 "Status": status
             })
-            st.markdown("---")
             
-    with col_r2:
-        st.markdown("#### 🚨 Ειδοποιήσεις & Κατάσταση")
-        df_risk = pd.DataFrame(risk_table_data)
-        if not df_risk.empty:
-            for idx, row in df_risk.iterrows():
-                if "HIT" in row["Status"]:
-                    st.error(f"**{row['Asset']}**: {row['Status']} (Τιμή: {row['CurrentPrice']})")
-                elif "REACHED" in row["Status"]:
-                    st.success(f"**{row['Asset']}**: {row['Status']} (Τιμή: {row['CurrentPrice']})")
-                else:
-                    st.info(f"**{row['Asset']}**: {row['Status']}")
-        else:
-            st.info("Δεν υπάρχουν ενεργά assets.")
+            st.markdown("---")
 
-    st.markdown("#### Συνοπτικός Πίνακας Ελέγχου Ρίσκου")
+    st.markdown("#### 🚨 Live Alerts Summary")
+    df_risk = pd.DataFrame(risk_table_data)
     if not df_risk.empty:
-        df_risk.index = df_risk.index + 1
-        st.dataframe(df_risk, width='stretch')
+        for idx, row in df_risk.iterrows():
+            if "HIT" in row["Status"]:
+                st.error(f"🚨 **{row['Asset']}**: {row['Status']} (Τρέχουσα Τιμή: {row['Current Price']} | Όριο: {row['Stop Loss Target']})")
+            elif "REACHED" in row["Status"]:
+                st.success(f"🎯 **{row['Asset']}**: {row['Status']} (Τρέχουσα Τιμή: {row['Current Price']} | Όριο: {row['Take Profit Target']})")
+                
+        with st.expander("📋 Δείτε αναλυτικό πίνακα ρίσκου"):
+            df_risk.index = df_risk.index + 1
+            st.dataframe(df_risk, width='stretch')
