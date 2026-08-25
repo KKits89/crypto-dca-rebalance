@@ -149,7 +149,7 @@ st.sidebar.caption(f"📅 Last Transaction: **{latest_date}**")
 
 tx_type = st.sidebar.radio("Order Type:", ["🟢 BUY", "🔴 SELL"], horizontal=True)
 
-asset_input = st.sidebar.text_input("Asset Ticker", "BTC").upper().strip()
+asset_input = st.sidebar.text_input("Coin Ticker", "BTC").upper().strip()
 amount_input = st.sidebar.number_input("Amount", value=0.0, format="%.6f")
 cost_input = st.sidebar.number_input("USD Total ($)", value=0.0, format="%.2f")
 
@@ -169,7 +169,7 @@ if st.sidebar.button("Execute Order"):
         except Exception as e:
             st.sidebar.error(f"Execution Error: {e}")
     else:
-        st.sidebar.error("Please fill valid asset, amount and USD cost (> 0).")
+        st.sidebar.error("Please fill valid coin, amount and USD cost (> 0).")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛡️ Risk & Undo Last")
@@ -415,12 +415,12 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 
 with tab1:
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Asset Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
+    col1.metric("Total Coin Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
     col2.metric("Total Net PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}% ({pnl_eur:+,.2f}€)")
     col3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
 
     st.markdown("---")
-    st.markdown("### 📊 Asset Allocation & Execution Matrix")
+    st.markdown("### 📊 Coin Allocation & Execution Matrix")
 
     table_data = []
     for asset, data in portfolio_data.items():
@@ -439,7 +439,7 @@ with tab1:
         cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
 
         table_data.append({
-            "Asset": cmc_url,
+            "Coin": cmc_url,
             "Name": asset,
             "Amount": f"{data['amount']:.6f} ({data['total_cost']:.2f}$)",
             "Avg Price": f"${stats['avg_price']:.2f}",
@@ -460,8 +460,8 @@ with tab1:
         df_metrics,
         width='stretch',
         column_config={
-            "Asset": st.column_config.LinkColumn(
-                "Asset Link",
+            "Coin": st.column_config.LinkColumn(
+                "Coin Link",
                 help="Open CoinMarketCap",
                 display_text=r"https://coinmarketcap.com/currencies/(.*?)/"
             ),
@@ -531,7 +531,7 @@ with tab2:
             assets_in_pie = list(current_values.keys())
             fig_pie = px.pie(
                 names=assets_in_pie, values=[info["current_val"] for info in current_values.values()],
-                title="Asset Share Distribution", hole=0.5, color=assets_in_pie, color_discrete_map=brand_colors
+                title="Coin Share Distribution", hole=0.5, color=assets_in_pie, color_discrete_map=brand_colors
             )
             fig_pie.update_layout(paper_bgcolor="#0e1117", font_color="#e6e6e6", legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#30363d"))
             st.plotly_chart(fig_pie, width='stretch')
@@ -543,7 +543,7 @@ with tab2:
             colors = ['#238636' if v >= 0 else '#da3633' for v in pnl_values]
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
             fig_bar.update_layout(
-                title="PnL Breakdown per Asset ($)",
+                title="PnL Breakdown per Coin ($)",
                 paper_bgcolor="#0e1117", plot_bgcolor="#161b22", font_color="#e6e6e6",
                 xaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash'),
                 yaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash')
@@ -560,7 +560,7 @@ with tab3:
         st.info("No recorded transactions.")
 
 with tab4:
-    st.markdown("### 🧠 Smart DCA Advisor & Profit Extractor")
+    st.markdown("### 🧠 Smart Advisor & Profit Engine")
     
     col_adv_1, col_adv_2 = st.columns(2)
     
@@ -568,17 +568,15 @@ with tab4:
         st.markdown("#### 🤖 Smart DCA Timing & Scoring Engine")
         st.caption(f"Global Market Sentiment (Fear & Greed): **{fng_value}/100 ({fng_label})**")
         
-        selected_dca_asset = st.selectbox("Select Asset to Evaluate for DCA:", list(current_values.keys()))
+        selected_dca_asset = st.selectbox("Select Coin to Evaluate for DCA:", list(current_values.keys()))
         test_dca_amount = st.number_input("Amount to Put ($)", value=100.0, step=10.0, key="smart_dca_amt")
         
         if selected_dca_asset and selected_dca_asset in current_values:
             stats = current_values[selected_dca_asset]
             
-            # Υπολογισμός Score (0 - 100)
             score = 50
             reasons = []
             
-            # 1. RSI Scoring
             if stats['rsi'] < 30:
                 score += 25
                 reasons.append("🟢 RSI is Extreme Oversold (<30)")
@@ -591,14 +589,12 @@ with tab4:
             else:
                 reasons.append("🟡 RSI is Neutral")
                 
-            # 2. Bollinger Bands Scoring
             if stats['price'] <= stats['bb_lower']:
                 score += 20
                 reasons.append("🟢 Price breached Lower Bollinger Band (Statistical Dip)")
             else:
                 reasons.append("🟡 Price is safely within bands")
                 
-            # 3. Fear & Greed Scoring
             if fng_value < 30:
                 score += 15
                 reasons.append("🟢 Market is in Fear/Panic (Great for accumulation)")
@@ -611,7 +607,7 @@ with tab4:
             st.markdown(f"### Score Result: **{score} / 100**")
             
             if score >= 70:
-                st.success("🟢 **STRONG BUY SIGNAL:** Εξαιρετική ευκαιρία! Η στατιστική και η τεχνική ανάλυση δείχνουν τοπικό πάτο. Βάλτα **όλα** τώρα.")
+                st.success("🟢 **STRONG BUY SIGNAL:** Εξαιρετική ευκαιρία! Η στατιστική και η τεχνική ανάλυση δείχνουν τοπικό πάτος. Βάλτα **όλα** τώρα.")
             elif score >= 45:
                 st.warning("🟡 **BALANCED DCA (DCA σε δόσεις):** Η αγορά είναι ουδέτερη. Καλύτερα να βάλεις τα μισά τώρα και τα υπόλοιπα αργότερα.")
             else:
@@ -633,11 +629,9 @@ with tab4:
             else:
                 st.markdown("##### Προτεινόμενη εκτέλεση για κατοχύρωση κέρδους:")
                 
-                # Βρίσκουμε ποια assets είναι κερδοφόρα
                 profitable_assets = {k: v for k, v in current_values.items() if v["pnl_usd"] > 0}
                 
                 if profitable_assets:
-                    # Υπολογίζουμε ποσοστό συνεισφοράς στο κέρδος
                     total_prof_sum = sum(v["pnl_usd"] for v in profitable_assets.values())
                     
                     extract_data = []
@@ -646,17 +640,22 @@ with tab4:
                         dollar_to_pull = target_profit_goal * weight
                         amount_to_sell = dollar_to_pull / stats["price"]
                         
+                        # Υπολογισμός ποσοστού (%) της συνολικής θέσης που πωλείται
+                        total_holding_amount = portfolio_data[asset]["amount"]
+                        pct_of_holding = (amount_to_sell / total_holding_amount) * 100 if total_holding_amount > 0 else 0
+                        
                         extract_data.append({
-                            "Asset": asset,
+                            "Coin": asset,
                             "Sell Amount": f"{amount_to_sell:.6f} {asset}",
+                            "% of Holding": f"{pct_of_holding:.1f}%",
                             "Est. Cash Back": f"${dollar_to_pull:,.2f}",
                             "Current Price": f"${stats['price']:,.2f}"
                         })
                         
                     st.table(pd.DataFrame(extract_data))
-                    st.info("💡 Με αυτή την αναλογική πώληση, κατοχυρώνεις ακριβώς το ποσό κέρδους που ζήτησες διατηρώντας ισορροπημένο το χαρτοφυλάκιό σου.")
+                    st.info("💡 Σου δείχνει ακριβώς πόσο ποσοστό (%) από τη θέση κάθε coin πρέπει να πουλήσεις για να πιάσεις καθαρό κέρδος τον στόχο σου.")
                 else:
-                    st.warning("Δεν υπάρχουν κερδοφόρα assets αυτή τη στιγμή για πώληση.")
+                    st.warning("Δεν υπάρχουν κερδοφόρα coins αυτή τη στιγμή για πώληση.")
         else:
             st.error("Το συνολικό χαρτοφυλάκιο είναι σε αρνητικό PnL, οπότε δεν υπάρχει κέρδος προς κατοχύρωση.")
 
@@ -731,7 +730,7 @@ with tab5:
             st.markdown("---")
             
             risk_table_data.append({
-                "Asset": asset,
+                "Coin": asset,
                 "Basis": basis_label,
                 "Current Price": f"${curr_p:,.2f}",
                 "Stop Loss Target": f"${sl_price:,.2f} ({sl_pct}%)",
@@ -746,9 +745,9 @@ with tab5:
     if not df_risk.empty:
         for idx, row in df_risk.iterrows():
             if "TRIGGERED" in row["Status"]:
-                st.error(f"🚨 **{row['Asset']}** — {row['Status']} at {row['Stop Loss Target']} | Est PnL: {row['SL PnL ($)']}")
+                st.error(f"🚨 **{row['Coin']}** — {row['Status']} at {row['Stop Loss Target']} | Est PnL: {row['SL PnL ($)']}")
             elif "REACHED" in row["Status"]:
-                st.success(f"🎯 **{row['Asset']}** — {row['Status']} at {row['Take Profit Target']} | Est PnL: {row['TP PnL ($)']}")
+                st.success(f"🎯 **{row['Coin']}** — {row['Status']} at {row['Take Profit Target']} | Est PnL: {row['TP PnL ($)']}")
                 
         with st.expander("View Full Risk Parameters Matrix"):
             df_risk.index = df_risk.index + 1
