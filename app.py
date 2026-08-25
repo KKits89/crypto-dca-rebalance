@@ -18,7 +18,7 @@ st.markdown("""
 <style>
     .stApp {
         background-color: #0e1117;
-        color: #e6e6e6;
+        color: #f0f6fc;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
     
@@ -33,10 +33,14 @@ st.markdown("""
         margin-bottom: 12px;
     }
     
-    h1, h2, h3 {
-        color: #f0f6fc;
+    h1, h2, h3, h4 {
+        color: #f0f6fc !important;
         font-weight: 600;
         letter-spacing: -0.5px;
+    }
+
+    p, span, label, div {
+        color: #e6e6e6;
     }
 
     .stTabs [data-baseweb="tab-list"] {
@@ -72,9 +76,13 @@ st.markdown("""
         color: #ffffff;
     }
 
-    dataframe {
-        border-radius: 6px;
+    /* Risk Card Custom Styling for Tab 5 */
+    .risk-card {
+        background-color: #161b22;
         border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 16px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -494,7 +502,6 @@ with tab2:
                     fillcolor='rgba(88, 166, 255, 0.05)'
                 ))
                 
-                # Πιο έντονες διακεκομμένες γραμμές (gridlines) στο timeline γράφημα
                 fig_timeline.update_layout(
                     title="Portfolio Valuation vs Basis Cost",
                     xaxis_title="",
@@ -559,7 +566,6 @@ with tab2:
             
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
             
-            # Πιο έντονες διακεκομμένες γραμμές (gridlines) στο Bar Chart
             fig_bar.update_layout(
                 title="PnL Breakdown per Asset ($)",
                 paper_bgcolor="#0e1117",
@@ -643,18 +649,24 @@ with tab5:
         base_price = curr_p if "Current" in calc_basis else avg_p
         basis_label = "Current Price" if "Current" in calc_basis else "Avg Cost"
         
+        # Καθαρότερη δομή κάρτας με ξεχωριστό πλαίσιο για κάθε asset
         with st.container():
-            col_info, col_sl, col_tp = st.columns([1.5, 2, 2])
+            st.markdown(f"""
+                <div style="background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 18px; margin-bottom: 16px;">
+                    <h3 style="margin-top: 0; color: #58a6ff; margin-bottom: 12px;">🪙 {asset}</h3>
+                </div>
+            """, unsafe_allow_html=True)
             
-            with col_info:
-                st.markdown(f"#### {asset}")
-                st.markdown(f"**Curr:** `${curr_p:,.2f}`")
-                st.markdown(f"**Avg:** `${avg_p:,.2f}`")
-                st.markdown(f"**Hold:** `{total_amt:.4f}`")
+            c_left, c_mid, c_right = st.columns([1.2, 2.4, 2.4])
+            
+            with c_left:
+                st.markdown(f"**Current Price:** `${curr_p:,.2f}`")
+                st.markdown(f"**Avg Cost:** `${avg_p:,.2f}`")
+                st.markdown(f"**Holdings:** `{total_amt:.4f}`")
                 
-            with col_sl:
+            with c_mid:
                 st.markdown(f"🔻 **Stop Loss** ({basis_label})")
-                sl_pct = st.slider(f"SL % ({asset})", -50.0, -1.0, -10.0, step=1.0, key=f"sl_{asset}")
+                sl_pct = st.slider(f"SL %", -50.0, -1.0, -10.0, step=1.0, key=f"sl_{asset}", label_visibility="collapsed")
                 sl_price = base_price * (1 + sl_pct / 100.0)
                 
                 sl_portfolio_value = total_amt * sl_price
@@ -662,12 +674,12 @@ with tab5:
                 sl_pnl_eur = sl_pnl_usd * usd_to_eur
                 sl_pnl_pct = (sl_pnl_usd / total_cst) * 100 if total_cst > 0 else 0
                 
-                st.markdown(f"Target: **`${sl_price:,.2f}`**")
-                st.markdown(f"PnL: **`${sl_pnl_usd:+,.2f}` (`{sl_pnl_pct:+.2f}%`)** | `€{sl_pnl_eur:+,.2f}`")
+                st.markdown(f"Target: <span style='color: #ff7b72; font-weight: bold;'>${sl_price:,.2f} ({sl_pct}%)</span>", unsafe_allow_html=True)
+                st.markdown(f"Est. PnL: **`${sl_pnl_usd:+,.2f}` (`{sl_pnl_pct:+.2f}%`)**")
                 
-            with col_tp:
+            with c_right:
                 st.markdown(f"🎯 **Take Profit** ({basis_label})")
-                tp_pct = st.slider(f"TP % ({asset})", 5.0, 300.0, 50.0, step=5.0, key=f"tp_{asset}")
+                tp_pct = st.slider(f"TP %", 5.0, 300.0, 50.0, step=5.0, key=f"tp_{asset}", label_visibility="collapsed")
                 tp_price = base_price * (1 + tp_pct / 100.0)
                 
                 tp_portfolio_value = total_amt * tp_price
@@ -675,8 +687,8 @@ with tab5:
                 tp_pnl_eur = tp_pnl_usd * usd_to_eur
                 tp_pnl_pct = (tp_pnl_usd / total_cst) * 100 if total_cst > 0 else 0
                 
-                st.markdown(f"Target: **`${tp_price:,.2f}`**")
-                st.markdown(f"PnL: **`${tp_pnl_usd:+,.2f}` (`{tp_pnl_pct:+.2f}%`)** | `€{tp_pnl_eur:+,.2f}`")
+                st.markdown(f"Target: <span style='color: #3fb950; font-weight: bold;'>${tp_price:,.2f} (+{tp_pct}%)</span>", unsafe_allow_html=True)
+                st.markdown(f"Est. PnL: **`${tp_pnl_usd:+,.2f}` (`{tp_pnl_pct:+.2f}%`)**")
             
             if curr_p <= sl_price:
                 status = "🚨 STOP LOSS TRIGGERED"
@@ -690,7 +702,8 @@ with tab5:
             else:
                 distance_to_sl_pct = 0.0
                 
-            st.markdown(f"**Status:** `{status}` | **SL Distance:** `{distance_to_sl_pct:.1f}%`")
+            st.markdown(f"<div style='margin-top: 10px; font-size: 13px; color: #8b949e;'>Status: <b>{status}</b> | Distance to SL: <b>{distance_to_sl_pct:.1f}%</b></div>", unsafe_allow_html=True)
+            st.markdown("---")
             
             risk_table_data.append({
                 "Asset": asset,
@@ -702,10 +715,8 @@ with tab5:
                 "TP PnL ($)": f"${tp_pnl_usd:+,.2f} ({tp_pnl_pct:+.2f}%)",
                 "Status": status
             })
-            
-            st.markdown("---")
 
-    st.markdown("#### 🚨 Risk Alerts & Summary")
+    st.markdown("#### 🚨 Risk Alerts Summary")
     df_risk = pd.DataFrame(risk_table_data)
     if not df_risk.empty:
         for idx, row in df_risk.iterrows():
