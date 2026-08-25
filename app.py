@@ -16,18 +16,15 @@ st.set_page_config(layout="wide", page_title="Crypto DCA Pro Terminal", page_ico
 # --- CUSTOM PROFESSIONAL CSS (TERMINAL / FINTECH LOOK) ---
 st.markdown("""
 <style>
-    /* Γενικό background και γραμματοσειρά */
     .stApp {
         background-color: #0e1117;
         color: #e6e6e6;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
     
-    /* Απόκρυψη default Streamlit header/footer στοιχείων αν χρειάζεται */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 
-    /* Custom Cards για τα metrics και τα sections */
     .metric-card {
         background-color: #161b22;
         border: 1px solid #30363d;
@@ -36,14 +33,12 @@ st.markdown("""
         margin-bottom: 12px;
     }
     
-    /* Headers */
     h1, h2, h3 {
         color: #f0f6fc;
         font-weight: 600;
         letter-spacing: -0.5px;
     }
 
-    /* Tabs styling */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: #0e1117;
@@ -63,7 +58,6 @@ st.markdown("""
         border-color: #58a6ff !important;
     }
 
-    /* Buttons */
     .stButton>button {
         background-color: #21262d;
         color: #c9d1d9;
@@ -78,7 +72,6 @@ st.markdown("""
         color: #ffffff;
     }
 
-    /* Dataframes / Tables */
     dataframe {
         border-radius: 6px;
         border: 1px solid #30363d;
@@ -501,6 +494,7 @@ with tab2:
                     fillcolor='rgba(88, 166, 255, 0.05)'
                 ))
                 
+                # Gridlines (διακεκομμένες γραμμές) στο timeline γράφημα
                 fig_timeline.update_layout(
                     title="Portfolio Valuation vs Basis Cost",
                     xaxis_title="",
@@ -509,8 +503,17 @@ with tab2:
                     plot_bgcolor="#161b22",
                     font_color="#e6e6e6",
                     hovermode="x unified",
-                    xaxis=dict(type='date', gridcolor='#30363d'),
-                    yaxis=dict(gridcolor='#30363d')
+                    xaxis=dict(
+                        type='date', 
+                        gridcolor='#30363d', 
+                        gridwidth=1, 
+                        griddash='dash'
+                    ),
+                    yaxis=dict(
+                        gridcolor='#30363d', 
+                        gridwidth=1, 
+                        griddash='dash'
+                    )
                 )
                 st.plotly_chart(fig_timeline, width='stretch')
         except Exception as e:
@@ -521,13 +524,32 @@ with tab2:
     
     with col_chart1:
         if current_values:
+            # Official/Brand Colors based on uploaded logos:
+            # BTC: Orange (#F7931A), ETH: Blue (#627EEA), SOL: Purple/Cyan gradient look, HYPE: Mint/Teal (#4EEDCC), ZEC: Yellow (#F4B728)
+            brand_colors = {
+                "BTC": "#F7931A",
+                "ETH": "#627EEA",
+                "SOL": "#9945FF",
+                "HYPE": "#4EEDCC",
+                "ZEC": "#F4B728"
+            }
+            
+            assets_in_pie = list(current_values.keys())
+            pie_colors = [brand_colors.get(asset, "#8b949e") for asset in assets_in_pie]
+            
             fig_pie = px.pie(
-                names=list(current_values.keys()),
+                names=assets_in_pie,
                 values=[info["current_val"] for info in current_values.values()],
                 title="Asset Share Distribution",
-                hole=0.5
+                hole=0.5,
+                color=assets_in_pie,
+                color_discrete_map=brand_colors
             )
-            fig_pie.update_layout(paper_bgcolor="#0e1117", font_color="#e6e6e6")
+            fig_pie.update_layout(
+                paper_bgcolor="#0e1117", 
+                font_color="#e6e6e6",
+                legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#30363d")
+            )
             st.plotly_chart(fig_pie, width='stretch')
         else:
             st.info("No assets available.")
@@ -539,13 +561,23 @@ with tab2:
             colors = ['#238636' if v >= 0 else '#da3633' for v in pnl_values]
             
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
+            
+            # Gridlines (διακεκομμένες γραμμές) στο PnL Bar Chart
             fig_bar.update_layout(
                 title="PnL Breakdown per Asset ($)",
                 paper_bgcolor="#0e1117",
                 plot_bgcolor="#161b22",
                 font_color="#e6e6e6",
-                xaxis=dict(gridcolor='#30363d'),
-                yaxis=dict(gridcolor='#30363d')
+                xaxis=dict(
+                    gridcolor='#30363d', 
+                    gridwidth=1, 
+                    griddash='dash'
+                ),
+                yaxis=dict(
+                    gridcolor='#30363d', 
+                    gridwidth=1, 
+                    griddash='dash'
+                )
             )
             st.plotly_chart(fig_bar, width='stretch')
         else:
