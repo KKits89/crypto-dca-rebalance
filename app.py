@@ -135,15 +135,52 @@ def get_latest_transaction_date(df):
                     return str(valid_dates.max())
     return "N/A"
 
+# --- ΑΡΧΙΚΟ ΦΟΡΤΩΜΑ ΓΙΑ ΕΝΤΟΠΙΣΜΟ ASSETS ---
+raw_df_initial = load_transactions_from_sheet()
+unique_assets_in_sheet = []
+if not raw_df_initial.empty:
+    col_asset = next((c for c in raw_df_initial.columns if 'asset' in c.lower()), 'Asset')
+    unique_assets_in_sheet = [str(x).upper().strip() for x in raw_df_initial[col_asset].unique() if str(x).strip() != '']
+
+# Default slugs αν κάποιο asset δεν υπάρχει στα defaults
+default_slugs = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "SOL": "solana",
+    "ZEC": "zcash",
+    "HYPE": "hyperliquid",
+    "PUMP": "pump-fun"
+}
+
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ (BUY / SELL) ---
 st.sidebar.markdown("### ⚙️ Trade & Execution")
 
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎯 Target Allocation Weights (%)")
+st.sidebar.caption("Ορίστε τα επιθυμητά ποσοστά βάρους για το DCA. Το άθροισμα πρέπει να είναι 100%.")
+
+# Δυναμικά Sliders για κάθε asset που υπάρχει στο sheet
+target_weights = {}
+default_pct_split = 100.0 / len(unique_assets_in_sheet) if unique_assets_in_sheet else 100.0
+
+for asset in unique_assets_in_sheet:
+    # Προεπιλεγμένα ποσοστά για τα βασικά, μοιρασμένα τα υπόλοιπα
+    fallback_defaults = {"BTC": 50.0, "ETH": 20.0, "SOL": 15.0, "ZEC": 5.0, "HYPE": 5.0, "PUMP": 5.0}
+    def_val = fallback_defaults.get(asset, round(default_pct_split, 1))
+    
+    target_weights[asset] = st.sidebar.slider(f"{asset} Target %", 0.0, 100.0, float(def_val), 1.0, key=f"weight_{asset}")
+
+total_weight_sum = sum(target_weights.values())
+if abs(total_weight_sum - 100.0) > 0.01:
+    st.sidebar.error(f"⚠️ Άθροισμα ποσοστών: {total_weight_sum:.1f}% (Πρέπει να είναι ακριβώς 100%)!")
+else:
+    st.sidebar.success(f"✅ Άθροισμα ποσοστών: 100.0%")
+
+st.sidebar.markdown("---")
 st.sidebar.markdown("### 📝 New Order Entry")
 
-raw_df_initial = load_transactions_from_sheet()
 latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.caption(f"📅 Last Transaction: **{latest_date}**")
 
@@ -174,10 +211,8 @@ if st.sidebar.button("Execute Order"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛡️ Risk & Undo Last")
 
-raw_df_check = load_transactions_from_sheet()
-
-if not raw_df_check.empty:
-    last_row = raw_df_check.iloc[-1]
+if not raw_df_initial.empty:
+    last_row = raw_df_initial.iloc[-1]
     st.sidebar.markdown(
         f"<div style='font-size: 12px; color: #8b949e; background: #161b22; padding: 8px; border-radius: 4px; border: 1px solid #30363d;'>"
         f"<b>Last Entry:</b> {last_row.get('Date', 'N/A')} | {last_row.get('Asset', 'N/A')}<br>"
@@ -213,28 +248,19 @@ def load_portfolio():
     
     summary = df.groupby(col_asset).agg({col_amount: 'sum', col_cost: 'sum'}).to_dict('index')
 
-    default_settings = {
-        "BTC": {"target_pct": 0.55, "cmc_slug": "bitcoin"},
-        "ETH": {"target_pct": 0.20, "cmc_slug": "ethereum"},
-        "SOL": {"target_pct": 0.15, "cmc_slug": "solana"},
-        "ZEC": {"target_pct": 0.05, "cmc_slug": "zcash"},
-        "HYPE": {"target_pct": 0.05, "cmc_slug": "hyperliquid"}
-    }
-
     formatted_summary = {}
     for asset, data in summary.items():
         amt = float(data[col_amount])
         cst = float(data[col_cost])
         
+        assigned_pct = target_weights.get(asset, 0.0) / 100.0
+        
         formatted_summary[asset] = {
             'total_cost': cst,
-            'amount': amt
+            'amount': amt,
+            'target_pct': assigned_pct,
+            'cmc_slug': default_slugs.get(asset, asset.lower())
         }
-        if asset in default_settings:
-            formatted_summary[asset].update(default_settings[asset])
-        else:
-            formatted_summary[asset]['target_pct'] = 0.0
-            formatted_summary[asset]['cmc_slug'] = asset.lower()
             
     return formatted_summary
 
@@ -442,6 +468,9 @@ with tab1:
     col2.metric("Total Net PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}% ({pnl_eur:+,.2f}€)")
     col3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
 
+    if abs(total_weight_sum - 100.0) > 0.01:
+        st.warning(f"⚠️ Προσοχή: Τα ποσοστά στόχευσης στη sidebar αθροίζουν σε {total_weight_sum:.1f}% αντί για 100%. Τα ποσά Smart/Strict Buy ενδέχεται να μην κατανεμηθούν σωστά.")
+
     st.markdown("---")
     st.markdown("### 📊 Coin Allocation & Execution Matrix")
 
@@ -464,6 +493,7 @@ with tab1:
         table_data.append({
             "Coin": cmc_url,
             "Name": asset,
+            "Target %": f"{data['target_pct']*100:.1f}%",
             "Amount": f"{data['amount']:.6f} ({data['total_cost']:.2f}$)",
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
@@ -550,7 +580,7 @@ with tab2:
     
     with col_chart1:
         if current_values:
-            brand_colors = {"BTC": "#F7931A", "ETH": "#627EEA", "SOL": "#9945FF", "HYPE": "#4EEDCC", "ZEC": "#F4B728"}
+            brand_colors = {"BTC": "#F7931A", "ETH": "#627EEA", "SOL": "#9945FF", "HYPE": "#4EEDCC", "ZEC": "#F4B728", "PUMP": "#FF2D55"}
             assets_in_pie = list(current_values.keys())
             fig_pie = px.pie(
                 names=assets_in_pie, values=[info["current_val"] for info in current_values.values()],
