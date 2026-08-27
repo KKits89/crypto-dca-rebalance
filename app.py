@@ -143,7 +143,7 @@ default_slugs = {
     "PUMP": "pump-fun"
 }
 
-# --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ (ΠΡΩΤΑ TRADE & EXECUTION) ---
+# --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
 st.sidebar.markdown("### ⚙️ Trade & Execution")
 
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
@@ -205,7 +205,7 @@ if not raw_df_initial.empty:
         except Exception as e:
             st.sidebar.error(f"Error reverting: {e}")
 
-# --- ΥΠΟΛΟΓΙΣΜΟΣ ΤΡΕΧΟΥΣΩΝ ΑΞΙΩΝ ΓΙΑ ΤΑ SLIDERS (ΑΥΤΟΜΑΤΗ ΑΝΤΛΗΣΗ) ---
+# --- ΥΠΟΛΟΓΙΣΜΟΣ ΤΡΕΧΟΥΣΩΝ ΑΞΙΩΝ & ΕΠΕΝΔΥΣΕΩΝ ΓΙΑ ΤΑ SLIDERS ---
 @st.cache_data(ttl=25)
 def get_cmc_prices_temp(symbols_list):
     api_key = st.secrets["CMC_API_KEY"]
@@ -224,6 +224,9 @@ def get_cmc_prices_temp(symbols_list):
 
 temp_df = load_transactions_from_sheet()
 temp_portfolio_vals = {}
+temp_invested_costs = {}
+tot_val_temp = 0
+
 if not temp_df.empty:
     c_asset = next((c for c in temp_df.columns if 'asset' in c.lower()), 'Asset')
     c_amount = next((c for c in temp_df.columns if 'amount' in c.lower()), 'Amount')
@@ -231,30 +234,30 @@ if not temp_df.empty:
     summary_temp = temp_df.groupby(c_asset).agg({c_amount: 'sum', c_cost: 'sum'}).to_dict('index')
     
     prices_temp = get_cmc_prices_temp(list(summary_temp.keys()))
-    tot_val_temp = 0
     for ast, dat in summary_temp.items():
         amt = float(dat[c_amount])
+        cst = float(dat[c_cost])
+        temp_invested_costs[ast] = cst
         if amt > 0:
-            p = prices_temp.get(ast, float(dat[c_cost])/amt if amt > 0 else 0)
+            p = prices_temp.get(ast, cst / amt if amt > 0 else 0)
             val = amt * p
             temp_portfolio_vals[ast] = val
             tot_val_temp += val
+        else:
+            temp_portfolio_vals[ast] = 0.0
 
 # --- SIDEBAR: TARGET ALLOCATION WEIGHTS (ΚΑΤΩ ΚΑΤΩ ΜΕ SLIDERS) ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Target Allocation Weights (%)")
-st.sidebar.caption("Τα ποσοστά προσαρμόζονται αυτόματα από την αξία των assets σου, αλλά μπορείς να τα αλλάξεις.")
+st.sidebar.caption("Τα ποσοστά παίρνουν αυτόματα την τρέχουσα αξία του κάθε coin στο portfolio.")
 
 target_weights = {}
 num_assets = len(unique_assets_in_sheet) if unique_assets_in_sheet else 1
 
 for asset in unique_assets_in_sheet:
     val = temp_portfolio_vals.get(asset, 0.0)
-    auto_pct = (val / tot_val_temp * 100.0) if tot_val_temp > 0 else (100.0 / num_assets)
-    
-    # Αν το asset είναι ολοκαίνουργιο με 0 αξία (π.χ. PUMP), βάζουμε default 0%
-    if asset == "PUMP" and val == 0:
-        auto_pct = 0.0
+    # Ακριβής υπολογισμός ποσοστού επί της συνολικής αξίας του portfolio
+    auto_pct = (val / tot_val_temp * 100.0) if tot_val_temp > 0 else 0.0
 
     target_weights[asset] = st.sidebar.slider(f"{asset} Target %", 0.0, 100.0, float(round(auto_pct, 1)), 1.0, key=f"weight_{asset}")
 
@@ -487,7 +490,7 @@ with tab1:
         table_data.append({
             "Coin": cmc_url,
             "Name": asset,
-            "Target_Numeric": data['target_pct'],  # Κρυφό πεδίο για σωστή ταξινόμηση
+            "Invested_Numeric": data['total_cost'],  # Κρυφό πεδίο για ταξινόμηση βάσει επενδεδυμένου ποσού ($ Cost)
             "Amount": f"{data['amount']:.6f} ({data['total_cost']:.2f}$)",
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": f"${new_avg:.2f}",
@@ -501,8 +504,9 @@ with tab1:
 
     df_metrics = pd.DataFrame(table_data)
     if not df_metrics.empty:
-        df_metrics = df_metrics.sort_values(by="Target_Numeric", ascending=False)
-        df_metrics = df_metrics.drop(columns=["Target_Numeric"])
+        # Ταξινόμηση βάσει του συνολικού USD Cost (επενδεδυμένου κεφαλαίου) φθίνουσα
+        df_metrics = df_metrics.sort_values(by="Invested_Numeric", ascending=False)
+        df_metrics = df_metrics.drop(columns=["Invested_Numeric"])
         df_metrics.index = range(1, len(df_metrics) + 1)
     
     st.dataframe(
