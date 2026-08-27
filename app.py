@@ -13,7 +13,7 @@ from google.oauth2.service_account import Credentials
 # --- ΡΥΘΜΙΣΗ ΣΕΛΙΔΑΣ ---
 st.set_page_config(layout="wide", page_title="Crypto DCA Pro Terminal", page_icon="⚡")
 
-# --- CUSTOM PROFESSIONAL CSS (TERMINAL / FINTECH LOOK) ---
+# --- CUSTOM PROFESSIONAL CSS (TERMINAL / FINTECH LOOK + CUSTOM SLIDER GREY STYLING) ---
 st.markdown("""
 <style>
     .stApp {
@@ -74,6 +74,19 @@ st.markdown("""
         background-color: #30363d;
         border-color: #8b949e;
         color: #ffffff;
+    }
+
+    /* --- WRAIO GRI STYLING GIA TA SLIDERS --- */
+    span[data-baseweb="tag"] {
+        background-color: #21262d !important;
+        color: #c9d1d9 !important;
+    }
+    div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
+        background-color: #8b949e !important;
+        border-color: #c9d1d9 !important;
+    }
+    div.stSlider > div[data-baseweb="slider"] div > div > div {
+        background-color: #484f58 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -205,7 +218,7 @@ if not raw_df_initial.empty:
         except Exception as e:
             st.sidebar.error(f"Error reverting: {e}")
 
-# --- ΥΠΟΛΟΓΙΣΜΟΣ ΤΡΕΧΟΥΣΩΝ ΑΞΙΩΝ & ΕΠΕΝΔΥΣΕΩΝ ΓΙΑ ΤΑ SLIDERS ---
+# --- ΥΠΟΛΟΓΙΣΜΟΣ ΤΡΕΧΟΥΣΩΝ ΑΞΙΩΝ ΠΡΟΣΩΡΙΝΑ ---
 @st.cache_data(ttl=25)
 def get_cmc_prices_temp(symbols_list):
     api_key = st.secrets["CMC_API_KEY"]
@@ -224,7 +237,6 @@ def get_cmc_prices_temp(symbols_list):
 
 temp_df = load_transactions_from_sheet()
 temp_portfolio_vals = {}
-temp_invested_costs = {}
 tot_val_temp = 0
 
 if not temp_df.empty:
@@ -237,7 +249,6 @@ if not temp_df.empty:
     for ast, dat in summary_temp.items():
         amt = float(dat[c_amount])
         cst = float(dat[c_cost])
-        temp_invested_costs[ast] = cst
         if amt > 0:
             p = prices_temp.get(ast, cst / amt if amt > 0 else 0)
             val = amt * p
@@ -246,26 +257,35 @@ if not temp_df.empty:
         else:
             temp_portfolio_vals[ast] = 0.0
 
-# --- SIDEBAR: TARGET ALLOCATION WEIGHTS (ΚΑΤΩ ΚΑΤΩ ΜΕ SLIDERS) ---
+# --- SIDEBAR: ΕΠΙΛΟΓΗ DCA ASSETS & TARGET ALLOCATION WEIGHTS ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎯 Target Allocation Weights (%)")
-st.sidebar.caption("Τα ποσοστά παίρνουν αυτόματα την τρέχουσα αξία του κάθε coin στο portfolio.")
+st.sidebar.markdown("### 🎯 DCA & Target Allocation Setup")
+st.sidebar.caption("Επέλεξε ποια coins συμμετέχουν ενεργά στο DCA πλάνο σου. Τα υπόλοιπα (π.χ. plays/speculative) εξαιρούνται.")
 
+default_dca_selection = [ast for ast in unique_assets_in_sheet if ast != "PUMP"]
+active_dca_assets = st.sidebar.multiselect(
+    "Active DCA Coins (Core Portfolio):", 
+    options=unique_assets_in_sheet, 
+    default=default_dca_selection
+)
+
+st.sidebar.markdown("#### Target Weights (%) για τα DCA Coins")
 target_weights = {}
-num_assets = len(unique_assets_in_sheet) if unique_assets_in_sheet else 1
 
-for asset in unique_assets_in_sheet:
+tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_assets)
+
+for asset in active_dca_assets:
     val = temp_portfolio_vals.get(asset, 0.0)
-    # Ακριβής υπολογισμός ποσοστού επί της συνολικής αξίας του portfolio
-    auto_pct = (val / tot_val_temp * 100.0) if tot_val_temp > 0 else 0.0
-
+    auto_pct = (val / tot_dca_val_temp * 100.0) if tot_dca_val_temp > 0 else (100.0 / len(active_dca_assets) if active_dca_assets else 0.0)
+    
     target_weights[asset] = st.sidebar.slider(f"{asset} Target %", 0.0, 100.0, float(round(auto_pct, 1)), 1.0, key=f"weight_{asset}")
 
 total_weight_sum = sum(target_weights.values())
-if abs(total_weight_sum - 100.0) > 0.01:
-    st.sidebar.error(f"⚠️ Άθροισμα ποσοστών: {total_weight_sum:.1f}% (Πρέπει να είναι ακριβώς 100%)!")
-else:
-    st.sidebar.success(f"✅ Άθροισμα ποσοστών: 100.0%")
+if active_dca_assets:
+    if abs(total_weight_sum - 100.0) > 0.01:
+        st.sidebar.error(f"⚠️ Άθροισμα ποσοστών DCA: {total_weight_sum:.1f}% (Πρέπει να είναι ακριβώς 100%)!")
+    else:
+        st.sidebar.success(f"✅ Άθροισμα ποσοστών DCA: 100.0%")
 
 # --- ΔΙΑΒΑΣΜΑ ΠΟΡΤΟΦΟΛΙΟΥ ΑΠΟ ΤΟ GOOGLE SHEET ---
 def load_portfolio():
@@ -283,12 +303,14 @@ def load_portfolio():
     for asset, data in summary.items():
         amt = float(data[col_amount])
         cst = float(data[col_cost])
-        assigned_pct = target_weights.get(asset, 0.0) / 100.0
+        
+        assigned_pct = (target_weights.get(asset, 0.0) / 100.0) if asset in active_dca_assets else 0.0
         
         formatted_summary[asset] = {
             'total_cost': cst,
             'amount': amt,
             'target_pct': assigned_pct,
+            'is_dca': asset in active_dca_assets,
             'cmc_slug': default_slugs.get(asset, asset.lower())
         }
             
@@ -428,7 +450,7 @@ total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100 if total_invested_co
 
 strict_allocations = {}
 for asset, data in portfolio_data.items():
-    if data["amount"] <= 0:
+    if data["amount"] <= 0 or not data["is_dca"]:
         continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
@@ -439,7 +461,7 @@ total_strict_weight = sum(strict_allocations.values()) or 1.0
 smart_allocations = {}
 total_smart_weight = 0
 for asset, data in portfolio_data.items():
-    if data["amount"] <= 0:
+    if data["amount"] <= 0 or not data["is_dca"]:
         continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
@@ -476,35 +498,42 @@ with tab1:
         if data["amount"] <= 0:
             continue
         stats = current_values[asset]
-        strict_share = strict_allocations.get(asset, 0) / total_strict_weight
-        strict_buy = new_cash_to_invest * strict_share
-        smart_share = smart_allocations.get(asset, 0) / total_smart_weight
-        smart_buy = new_cash_to_invest * smart_share
         
-        new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
-        pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
+        if data["is_dca"]:
+            strict_share = strict_allocations.get(asset, 0) / total_strict_weight
+            strict_buy = new_cash_to_invest * strict_share
+            smart_share = smart_allocations.get(asset, 0) / total_smart_weight
+            smart_buy = new_cash_to_invest * smart_share
+            new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
+            strict_str = f"${strict_buy:.2f}"
+            smart_str = f"${smart_buy:.2f}"
+            new_avg_str = f"${new_avg:.2f}"
+        else:
+            strict_str = "— (External Play)"
+            smart_str = "— (External Play)"
+            new_avg_str = f"${stats['avg_price']:.2f}"
 
+        pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
         slug = data.get("cmc_slug", asset.lower())
         cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
 
         table_data.append({
             "Coin": cmc_url,
             "Name": asset,
-            "Invested_Numeric": data['total_cost'],  # Κρυφό πεδίο για ταξινόμηση βάσει επενδεδυμένου ποσού ($ Cost)
+            "Invested_Numeric": data['total_cost'],
             "Amount": f"{data['amount']:.6f} ({data['total_cost']:.2f}$)",
             "Avg Price": f"${stats['avg_price']:.2f}",
-            "New Avg": f"${new_avg:.2f}",
+            "New Avg": new_avg_str,
             "Curr Price": f"${stats['price']:.2f}",
             "SMA 50": f"${stats['sma_50']:.2f}",
             "RSI": f"{stats['rsi']:.1f}",
             "PnL": pnl_str,
-            "Strict Buy": f"${strict_buy:.2f}",
-            "Smart Buy": f"${smart_buy:.2f}"
+            "Strict Buy": strict_str,
+            "Smart Buy": smart_str
         })
 
     df_metrics = pd.DataFrame(table_data)
     if not df_metrics.empty:
-        # Ταξινόμηση βάσει του συνολικού USD Cost (επενδεδυμένου κεφαλαίου) φθίνουσα
         df_metrics = df_metrics.sort_values(by="Invested_Numeric", ascending=False)
         df_metrics = df_metrics.drop(columns=["Invested_Numeric"])
         df_metrics.index = range(1, len(df_metrics) + 1)
