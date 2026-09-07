@@ -13,80 +13,130 @@ from google.oauth2.service_account import Credentials
 # --- ΡΥΘΜΙΣΗ ΣΕΛΙΔΑΣ ---
 st.set_page_config(layout="wide", page_title="Crypto DCA Pro Terminal", page_icon="⚡")
 
-# --- CUSTOM PROFESSIONAL CSS (TERMINAL / FINTECH LOOK + CUSTOM SLIDER GREY STYLING) ---
+# --- CUSTOM PROFESSIONAL FINTECH UI & CSS (MODERN TERMINAL LOOK) ---
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
     .stApp {
-        background-color: #0e1117;
-        color: #f0f6fc;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background-color: #0b0f19;
+        color: #f3f4f6;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    header {visibility: hidden;}
 
-    .metric-card {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 6px;
-        padding: 16px;
-        margin-bottom: 12px;
+    /* Metric Cards Styling */
+    div[data-testid="stMetric"] {
+        background-color: #111827;
+        border: 1px solid #1f2937;
+        padding: 18px 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        transition: transform 0.2s ease, border-color 0.2s ease;
     }
-    
+    div[data-testid="stMetric"]:hover {
+        border-color: #3b82f6;
+        transform: translateY(-2px);
+    }
+    div[data-testid="stMetric"] label {
+        color: #9ca3af !important;
+        font-weight: 500;
+        font-size: 0.875rem !important;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #f9fafb !important;
+        font-weight: 700;
+        font-size: 1.5rem !important;
+    }
+
+    /* Headings */
     h1, h2, h3, h4 {
-        color: #f0f6fc !important;
-        font-weight: 600;
-        letter-spacing: -0.5px;
+        color: #f9fafb !important;
+        font-weight: 650 !important;
+        letter-spacing: -0.025em;
     }
 
     p, span, label, div {
-        color: #e6e6e6;
+        color: #d1d5db;
     }
 
+    /* Tabs Styling */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background-color: #0e1117;
-        padding: 4px 0;
+        gap: 10px;
+        background-color: #0b0f19;
+        padding: 6px 0;
+        border-bottom: 1px solid #1f2937;
     }
     .stTabs [data-baseweb="tab"] {
-        background-color: #161b22;
-        border-radius: 4px;
-        color: #8b949e;
-        border: 1px solid #30363d;
-        padding: 8px 16px;
+        background-color: #111827;
+        border-radius: 8px;
+        color: #9ca3af;
+        border: 1px solid #1f2937;
+        padding: 10px 18px;
         font-weight: 500;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #21262d !important;
-        color: #58a6ff !important;
-        border-color: #58a6ff !important;
-    }
-
-    .stButton>button {
-        background-color: #21262d;
-        color: #c9d1d9;
-        border: 1px solid #30363d;
-        border-radius: 6px;
-        font-weight: 500;
+        font-size: 0.9rem;
         transition: all 0.2s ease;
     }
-    .stButton>button:hover {
-        background-color: #30363d;
-        border-color: #8b949e;
-        color: #ffffff;
+    .stTabs [data-baseweb="tab"]:hover {
+        background-color: #1f2937;
+        color: #f3f4f6;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #1d4ed8 !important;
+        color: #ffffff !important;
+        border-color: #3b82f6 !important;
+        box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
     }
 
-    /* --- WRAIO GRI STYLING GIA TA SLIDERS --- */
+    /* Buttons Styling */
+    .stButton>button {
+        background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+        color: #f3f4f6;
+        border: 1px solid #374151;
+        border-radius: 8px;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .stButton>button:hover {
+        background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+        border-color: #60a5fa;
+        color: #ffffff;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+    }
+
+    /* Sidebar Customization */
+    section[data-testid="stSidebar"] {
+        background-color: #0d1322;
+        border-right: 1px solid #1f2937;
+    }
+    section[data-testid="stSidebar"] hr {
+        border-color: #1f2937;
+    }
+
+    /* Inputs & Selectboxes */
+    .stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
+        background-color: #111827 !important;
+        border: 1px solid #374151 !important;
+        color: #f3f4f6 !important;
+        border-radius: 8px !important;
+    }
+
+    /* Sliders Styling (Slate Grey) */
     span[data-baseweb="tag"] {
-        background-color: #21262d !important;
-        color: #c9d1d9 !important;
+        background-color: #1f2937 !important;
+        color: #e5e7eb !important;
     }
     div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
-        background-color: #8b949e !important;
-        border-color: #c9d1d9 !important;
+        background-color: #9ca3af !important;
+        border-color: #f3f4f6 !important;
     }
     div.stSlider > div[data-baseweb="slider"] div > div > div {
-        background-color: #484f58 !important;
+        background-color: #4b5563 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -94,7 +144,7 @@ st.markdown("""
 # --- ΑΥΤΟΜΑΤΗ ΑΝΑΝΕΩΣΗ ΑΝΑ 1 ΛΕΠΤΟ ---
 st_autorefresh(interval=60 * 1000, key="datarefresh")
 
-st.title("⚡ Crypto DCA & Smart Terminal")
+st.markdown("# ⚡ Crypto DCA & Smart Terminal")
 
 # --- GOOGLE SHEETS SETUP ---
 def get_g_sheet():
@@ -128,7 +178,7 @@ def load_transactions_from_sheet():
                 
         return df
     except Exception as e:
-        st.error(f"Σφάλμα σύνδεσης με το Google Sheet: {e}")
+        st.error(f"⚠️ Σφάλμα σύνδεσης με το Google Sheet: {e}")
         return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
 
 def get_latest_transaction_date(df):
@@ -157,38 +207,61 @@ default_slugs = {
 }
 
 # --- SIDEBAR: ΡΥΘΜΙΣΕΙΣ & ΚΑΤΑΧΩΡΗΣΗ ---
-st.sidebar.markdown("### ⚙️ Trade & Execution")
+st.sidebar.markdown("### ⚙️ Trade & Execution Engine")
 
-new_cash_to_invest = st.sidebar.number_input("Cash to Invest Today ($)", value=0.0, step=10.0)
+new_cash_to_invest = st.sidebar.number_input("💵 Cash to Invest Today ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📝 New Order Entry")
+st.sidebar.markdown("### 📝 Order & Loss Management")
 
 latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.caption(f"📅 Last Transaction: **{latest_date}**")
 
-tx_type = st.sidebar.radio("Order Type:", ["🟢 BUY", "🔴 SELL"], horizontal=True)
+# Mode selection: Buy/Sell vs External Burn/Loss/Withdrawal
+action_mode = st.sidebar.radio("Action Type:", ["📥 Buy / 📤 Standard Sell", "🔥 External Loss / Poker / Burn"], horizontal=False)
 
-asset_input = st.sidebar.text_input("Coin Ticker", "BTC").upper().strip()
-amount_input = st.sidebar.number_input("Amount", value=0.0, format="%.6f")
-cost_input = st.sidebar.number_input("USD Total ($)", value=0.0, format="%.2f")
+if "Standard" in action_mode:
+    tx_type = st.sidebar.radio("Order Direction:", ["🟢 BUY", "🔴 SELL"], horizontal=True)
+    asset_input = st.sidebar.text_input("Coin Ticker", "BTC").upper().strip()
+    amount_input = st.sidebar.number_input("Amount", value=0.0, format="%.6f")
+    cost_input = st.sidebar.number_input("USD Total ($)", value=0.0, format="%.2f")
 
-if st.sidebar.button("Execute Order"):
-    if amount_input > 0 and cost_input > 0 and asset_input:
-        t_date = datetime.now().strftime("%Y-%m-%d")
-        final_amount = -amount_input if "SELL" in tx_type else amount_input
-        final_cost = -cost_input if "SELL" in tx_type else cost_input
-        
-        try:
-            sheet = get_g_sheet()
-            sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
-            st.cache_data.clear()
-            st.sidebar.success("Order logged successfully!")
-            st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"Execution Error: {e}")
-    else:
-        st.sidebar.error("Please fill valid coin, amount and USD cost (> 0).")
+    if st.sidebar.button("🚀 Execute Order"):
+        if amount_input > 0 and cost_input > 0 and asset_input:
+            t_date = datetime.now().strftime("%Y-%m-%d")
+            final_amount = -amount_input if "SELL" in tx_type else amount_input
+            final_cost = -cost_input if "SELL" in tx_type else cost_input
+            
+            try:
+                sheet = get_g_sheet()
+                sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
+                st.cache_data.clear()
+                st.sidebar.success("✅ Order logged successfully!")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"⚠️ Execution Error: {e}")
+        else:
+            st.sidebar.error("⚠️ Please fill valid coin, amount and USD cost (> 0).")
+else:
+    st.sidebar.markdown("<small style='color: #9ca3af;'>Καταχώρισε απώλειες (π.χ. πόκερ, hacks, fees, δώρα) για να αφαιρεθούν σωστά τα coins και τα κόστη τους από το portfolio χωρίς να μπουν μετρητά στο ταμείο.</small>", unsafe_allow_html=True)
+    burn_asset = st.sidebar.text_input("Coin Ticker to Remove", "BTC").upper().strip()
+    burn_amount = st.sidebar.number_input("Amount to Remove", value=0.0, format="%.6f")
+    burn_cost_lost = st.sidebar.number_input("Original USD Cost to Write Off ($)", value=0.0, format="%.2f")
+
+    if st.sidebar.button("🔥 Log Loss / Withdrawal"):
+        if burn_amount > 0 and burn_cost_lost > 0 and burn_asset:
+            t_date = datetime.now().strftime("%Y-%m-%d")
+            # Περνάμε αρνητικό amount και αρνητικό cost ώστε να αφαιρεθούν καθαρά από το summary
+            try:
+                sheet = get_g_sheet()
+                sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", f"-{burn_cost_lost:.2f}"])
+                st.cache_data.clear()
+                st.sidebar.success("✅ Loss / Withdrawal logged successfully!")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"⚠️ Error: {e}")
+        else:
+            st.sidebar.error("⚠️ Fill valid coin, amount and written-off cost.")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🛡️ Risk & Undo Last")
@@ -196,7 +269,7 @@ st.sidebar.markdown("### 🛡️ Risk & Undo Last")
 if not raw_df_initial.empty:
     last_row = raw_df_initial.iloc[-1]
     st.sidebar.markdown(
-        f"<div style='font-size: 12px; color: #8b949e; background: #161b22; padding: 8px; border-radius: 4px; border: 1px solid #30363d;'>"
+        f"<div style='font-size: 12px; color: #9ca3af; background: #111827; padding: 10px; border-radius: 8px; border: 1px solid #1f2937;'>"
         f"<b>Last Entry:</b> {last_row.get('Date', 'N/A')} | {last_row.get('Asset', 'N/A')}<br>"
         f"<b>Amt:</b> {last_row.get('Amount', 'N/A')} | <b>Cost:</b> ${last_row.get('USD_Cost', 'N/A')}"
         f"</div>", 
@@ -211,12 +284,12 @@ if not raw_df_initial.empty:
                 row_to_delete = len(all_values)
                 sheet.delete_rows(row_to_delete)
                 st.cache_data.clear()
-                st.sidebar.success("Last transaction reverted.")
+                st.sidebar.success("✅ Last transaction reverted.")
                 st.rerun()
             else:
-                st.sidebar.warning("No transactions left to delete.")
+                st.sidebar.warning("⚠️ No transactions left to delete.")
         except Exception as e:
-            st.sidebar.error(f"Error reverting: {e}")
+            st.sidebar.error(f"⚠️ Error reverting: {e}")
 
 # --- ΥΠΟΛΟΓΙΣΜΟΣ ΤΡΕΧΟΥΣΩΝ ΑΞΙΩΝ ΠΡΟΣΩΡΙΝΑ ---
 @st.cache_data(ttl=25)
@@ -259,8 +332,8 @@ if not temp_df.empty:
 
 # --- SIDEBAR: ΕΠΙΛΟΓΗ DCA ASSETS & TARGET ALLOCATION WEIGHTS ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎯 DCA & Target Allocation Setup")
-st.sidebar.caption("Επέλεξε ποια coins συμμετέχουν ενεργά στο DCA πλάνο σου. Τα υπόλοιπα (π.χ. plays/speculative) εξαιρούνται.")
+st.sidebar.markdown("### 🎯 Target Allocation Setup")
+st.sidebar.caption("Επέλεξε ποια coins συμμετέχουν ενεργά στο DCA πλάνο σου.")
 
 default_dca_selection = [ast for ast in unique_assets_in_sheet if ast != "PUMP"]
 active_dca_assets = st.sidebar.multiselect(
@@ -584,20 +657,20 @@ with tab2:
                 fig_timeline = go.Figure()
                 fig_timeline.add_trace(go.Scatter(
                     x=timeline_df[date_col], y=timeline_df['Cumulative_Cost'],
-                    mode='lines', name='Invested Cost ($)', line=dict(color='#8b949e', width=2)
+                    mode='lines', name='Invested Cost ($)', line=dict(color='#9ca3af', width=2)
                 ))
                 fig_timeline.add_trace(go.Scatter(
                     x=timeline_df[date_col], y=timeline_df['Portfolio_Value'],
-                    mode='lines', name='Portfolio Value ($)', line=dict(color='#58a6ff', width=2.5),
-                    fill='tonexty', fillcolor='rgba(88, 166, 255, 0.05)'
+                    mode='lines', name='Portfolio Value ($)', line=dict(color='#3b82f6', width=2.5),
+                    fill='tonexty', fillcolor='rgba(59, 130, 246, 0.08)'
                 ))
                 fig_timeline.update_layout(
                     title="Portfolio Valuation vs Basis Cost",
                     xaxis_title="", yaxis_title="USD ($)",
-                    paper_bgcolor="#0e1117", plot_bgcolor="#161b22", font_color="#e6e6e6",
+                    paper_bgcolor="#0b0f19", plot_bgcolor="#111827", font_color="#f3f4f6",
                     hovermode="x unified",
-                    xaxis=dict(type='date', gridcolor='#484f58', gridwidth=1.5, griddash='dash'),
-                    yaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash')
+                    xaxis=dict(type='date', gridcolor='#1f2937', gridwidth=1, griddash='dash'),
+                    yaxis=dict(gridcolor='#1f2937', gridwidth=1, griddash='dash')
                 )
                 st.plotly_chart(fig_timeline, width='stretch')
         except Exception as e:
@@ -613,20 +686,20 @@ with tab2:
                 names=assets_in_pie, values=[info["current_val"] for info in current_values.values()],
                 title="Coin Share Distribution", hole=0.5, color=assets_in_pie, color_discrete_map=brand_colors
             )
-            fig_pie.update_layout(paper_bgcolor="#0e1117", font_color="#e6e6e6", legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#30363d"))
+            fig_pie.update_layout(paper_bgcolor="#0b0f19", plot_bgcolor="#111827", font_color="#f3f4f6", legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor="#1f2937"))
             st.plotly_chart(fig_pie, width='stretch')
         
     with col_chart2:
         if current_values:
             assets_list = list(current_values.keys())
             pnl_values = [info["pnl_usd"] for info in current_values.values()]
-            colors = ['#238636' if v >= 0 else '#da3633' for v in pnl_values]
+            colors = ['#10b981' if v >= 0 else '#ef4444' for v in pnl_values]
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_values, marker_color=colors)])
             fig_bar.update_layout(
                 title="PnL Breakdown per Coin ($)",
-                paper_bgcolor="#0e1117", plot_bgcolor="#161b22", font_color="#e6e6e6",
-                xaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash'),
-                yaxis=dict(gridcolor='#484f58', gridwidth=1.5, griddash='dash')
+                paper_bgcolor="#0b0f19", plot_bgcolor="#111827", font_color="#f3f4f6",
+                xaxis=dict(gridcolor='#1f2937', gridwidth=1, griddash='dash'),
+                yaxis=dict(gridcolor='#1f2937', gridwidth=1, griddash='dash')
             )
             st.plotly_chart(fig_bar, width='stretch')
 
