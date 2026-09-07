@@ -11,9 +11,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- PAGE CONFIGURATION ---
-st.page_config(layout="wide", page_title="DCA Portfolio Terminal", page_icon="📈")
+st.set_page_config(layout="wide", page_title="DCA Portfolio Terminal")
 
-# --- INSTITUTIONAL / CLEAN FINTECH UI (NO AI GLOW/NEON) ---
+# --- INSTITUTIONAL / CLEAN FINTECH UI ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -334,7 +334,7 @@ for asset in active_dca_assets:
 
 total_weight_sum = sum(target_weights.values())
 if active_dca_assets and abs(total_weight_sum - 100.0) > 0.01:
-    st.sidebar.caption(f"⚠️ Sum: {total_weight_sum:.1f}% (Must equal 100%)")
+    st.sidebar.caption(f"Warning: Sum is {total_weight_sum:.1f}% (Must equal 100%)")
 
 # --- CORE PORTFOLIO ENGINE ---
 def load_portfolio():
@@ -632,7 +632,7 @@ with tab2:
             fig_bar.update_layout(title="Net PnL per Asset ($)", paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
             st.plotly_chart(fig_bar, width='stretch')
 
-# --- TAB 3: LEDGERS & EXPORT (FEATURE #7 INCLUDED) ---
+# --- TAB 3: LEDGERS & EXPORT ---
 with tab3:
     st.markdown("##### Raw Transaction Ledger & Data Export")
     raw_df = load_transactions_from_sheet()
@@ -643,7 +643,7 @@ with tab3:
         if not raw_df.empty:
             csv_ledger = raw_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download Transaction Ledger (CSV)",
+                label="Download Transaction Ledger (CSV)",
                 data=csv_ledger,
                 file_name=f"crypto_ledger_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
@@ -653,7 +653,7 @@ with tab3:
         if not df_metrics.empty:
             csv_summary = df_metrics.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="📥 Download Portfolio Summary (CSV)",
+                label="Download Portfolio Summary (CSV)",
                 data=csv_summary,
                 file_name=f"portfolio_summary_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
@@ -704,10 +704,10 @@ with tab4:
                     })
                 st.table(pd.DataFrame(extract_data))
 
-# --- TAB 5: RISK & TAKE-PROFIT LADDERING (FEATURE #4 INCLUDED) ---
+# --- TAB 5: RISK & TAKE-PROFIT LADDERING ---
 with tab5:
     st.markdown("##### Take-Profit Laddering Strategy")
-    st.caption("Оρίστε σταδιακά επίπεδα πωλήσεων (Laddering) για να κλειδώνεις κέρδη χωρίς συναισθήματα.")
+    st.caption("Ορίστε σταδιακά επίπεδα πωλήσεων (Laddering) για να κλειδώνετε κέρδη με βάση το πλάνο σας.")
 
     active_assets_list = [a for a in current_values.keys() if current_values[a]["current_val"] > 0]
     
