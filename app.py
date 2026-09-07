@@ -217,7 +217,6 @@ st.sidebar.markdown("### 📝 Order & Loss Management")
 latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.caption(f"📅 Last Transaction: **{latest_date}**")
 
-# Mode selection: Buy/Sell vs External Burn/Loss/Withdrawal
 action_mode = st.sidebar.radio("Action Type:", ["📥 Buy / 📤 Standard Sell", "🔥 External Loss / Poker / Burn"], horizontal=False)
 
 if "Standard" in action_mode:
@@ -251,7 +250,6 @@ else:
     if st.sidebar.button("🔥 Log Loss / Withdrawal"):
         if burn_amount > 0 and burn_cost_lost > 0 and burn_asset:
             t_date = datetime.now().strftime("%Y-%m-%d")
-            # Περνάμε αρνητικό amount και αρνητικό cost ώστε να αφαιρεθούν καθαρά από το summary
             try:
                 sheet = get_g_sheet()
                 sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", f"-{burn_cost_lost:.2f}"])
@@ -322,7 +320,7 @@ if not temp_df.empty:
     for ast, dat in summary_temp.items():
         amt = float(dat[c_amount])
         cst = float(dat[c_cost])
-        if amt > 0:
+        if amt > 1e-5:
             p = prices_temp.get(ast, cst / amt if amt > 0 else 0)
             val = amt * p
             temp_portfolio_vals[ast] = val
@@ -350,7 +348,6 @@ tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_a
 for asset in active_dca_assets:
     val = temp_portfolio_vals.get(asset, 0.0)
     auto_pct = (val / tot_dca_val_temp * 100.0) if tot_dca_val_temp > 0 else (100.0 / len(active_dca_assets) if active_dca_assets else 0.0)
-    
     target_weights[asset] = st.sidebar.slider(f"{asset} Target %", 0.0, 100.0, float(round(auto_pct, 1)), 1.0, key=f"weight_{asset}")
 
 total_weight_sum = sum(target_weights.values())
@@ -462,15 +459,22 @@ try:
 except:
     usd_to_eur = 0.92
 
+# --- ΔΙΟΡΘΩΜΕΝΟΣ ΥΠΟΛΟΓΙΣΜΟΣ PNL, DUST & REALIZED POSITIONS ---
 current_values = {}
-total_current_portfolio = 0
-total_invested_cost = sum(d["total_cost"] for d in portfolio_data.values() if d["amount"] > 0) if portfolio_data else 0
+total_current_portfolio = 0.0
+total_active_cost = 0.0
+total_realized_pnl = 0.0
 
 for asset, data in portfolio_data.items():
-    if data["amount"] <= 0:
+    amt = data["amount"]
+    cst = data["total_cost"]
+    
+    # Αν η ποσότητα είναι μηδέν ή ελάχιστη (Dust/Closed Position)
+    if abs(amt) < 1e-5:
+        total_realized_pnl -= cst  # Το αρνητικό cst γίνεται κέρδος, το θετικό ζημιά
         continue 
         
-    price = cmc_prices.get(asset, data["total_cost"] / data["amount"] if data["amount"] > 0 else 0)
+    price = cmc_prices.get(asset, cst / amt if amt > 0 else 0)
     rsi = 50.0
     sma_50 = price
     bb_lower = price * 0.95
@@ -494,10 +498,10 @@ for asset, data in portfolio_data.items():
     except:
         pass
 
-    val = data["amount"] * price
-    avg_price = (data["total_cost"] / data["amount"]) if data["amount"] > 0 else 0
-    pnl_usd = val - data["total_cost"]
-    pnl_pct = (pnl_usd / data["total_cost"]) * 100 if data["total_cost"] > 0 else 0
+    val = amt * price
+    avg_price = (cst / amt) if amt > 0 else 0
+    pnl_usd = val - cst
+    pnl_pct = (pnl_usd / cst) * 100 if cst > 0 else 0
 
     temp_stats = {
         "price": price,
@@ -514,16 +518,22 @@ for asset, data in portfolio_data.items():
 
     current_values[asset] = temp_stats
     total_current_portfolio += val
+    total_active_cost += cst
 
+# Υπολογισμοί Συνολικού Ταμείου
+total_invested_cost = total_active_cost
 new_total_portfolio = total_current_portfolio + new_cash_to_invest
 tot_eur = total_current_portfolio * usd_to_eur
-total_pnl_usd = total_current_portfolio - total_invested_cost
+
+total_unrealized_pnl = total_current_portfolio - total_active_cost
+total_pnl_usd = total_unrealized_pnl + total_realized_pnl
 pnl_eur = total_pnl_usd * usd_to_eur
 total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100 if total_invested_cost > 0 else 0
 
+# Allocation calculations
 strict_allocations = {}
 for asset, data in portfolio_data.items():
-    if data["amount"] <= 0 or not data["is_dca"]:
+    if data["amount"] <= 1e-5 or not data["is_dca"] or asset not in current_values:
         continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
@@ -534,7 +544,7 @@ total_strict_weight = sum(strict_allocations.values()) or 1.0
 smart_allocations = {}
 total_smart_weight = 0
 for asset, data in portfolio_data.items():
-    if data["amount"] <= 0 or not data["is_dca"]:
+    if data["amount"] <= 1e-5 or not data["is_dca"] or asset not in current_values:
         continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
@@ -568,7 +578,7 @@ with tab1:
 
     table_data = []
     for asset, data in portfolio_data.items():
-        if data["amount"] <= 0:
+        if data["amount"] <= 1e-5 or asset not in current_values:
             continue
         stats = current_values[asset]
         
@@ -718,7 +728,7 @@ with tab4:
     with col_adv_1:
         st.markdown("#### 🤖 Smart DCA Timing & Scoring Engine")
         st.caption(f"Global Market Sentiment (Fear & Greed): **{fng_value}/100 ({fng_label})**")
-        selected_dca_asset = st.selectbox("Select Coin to Evaluate for DCA:", list(current_values.keys()))
+        selected_dca_asset = st.selectbox("Select Coin to Evaluate for DCA:", list(current_values.keys()) if current_values else ["BTC"])
         test_dca_amount = st.number_input("Amount to Put ($)", value=100.0, step=10.0, key="smart_dca_amt")
         
         if selected_dca_asset and selected_dca_asset in current_values:
@@ -762,7 +772,7 @@ with tab5:
     st.markdown("---")
     
     for asset, data in portfolio_data.items():
-        if data["amount"] <= 0:
+        if data["amount"] <= 1e-5 or asset not in current_values:
             continue
         stats = current_values[asset]
         curr_p = stats['price']
@@ -779,10 +789,9 @@ with tab5:
                 sl_pct = st.slider(f"SL % {asset}", -50.0, -1.0, -10.0, step=1.0, key=f"sl_{asset}", label_visibility="collapsed")
                 sl_price = base_price * (1 + sl_pct / 100.0)
                 sl_pnl_usd = (total_amt * sl_price) - total_cst
-                st.markdown(f"SL: ${sl_price:,.2f} ({sl_pct}%) | PnL: `${sl_pnl_usd:+,.2f}`")
+                st.markdown(f"SL: `${sl_price:,.2f}` ({sl_pct}%) | PnL: `${sl_pnl_usd:+,.2f}`")
             with c_right:
                 tp_pct = st.slider(f"TP % {asset}", 5.0, 300.0, 50.0, step=5.0, key=f"tp_{asset}", label_visibility="collapsed")
                 tp_price = base_price * (1 + tp_pct / 100.0)
                 tp_pnl_usd = (total_amt * tp_price) - total_cst
-                st.markdown(f"TP: ${tp_price:,.2f} (+{tp_pct}%) | PnL: `${tp_pnl_usd:+,.2f}`")
-            st.markdown("---")
+                st.markdown(f"TP: `${tp_price:,.2f}` (+{tp_pct}%) | PnL: `${tp_pnl_usd:+,.2f}`")
