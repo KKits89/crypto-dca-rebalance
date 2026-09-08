@@ -18,7 +18,6 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-    /* Global Dark Theme - Minimal Zinc */
     html, body, .stApp {
         background-color: #09090b !important;
         color: #f4f4f5 !important;
@@ -27,7 +26,6 @@ st.markdown("""
 
     #MainMenu, footer, header {visibility: hidden;}
 
-    /* Metric Cards - Flat Institutional Look */
     div[data-testid="stMetric"] {
         background-color: #121215 !important;
         border: 1px solid #27272a !important;
@@ -49,14 +47,12 @@ st.markdown("""
         font-family: 'JetBrains Mono', monospace !important;
     }
 
-    /* Headings */
     h1, h2, h3, h4 {
         color: #fafafa !important;
         font-weight: 600 !important;
         letter-spacing: -0.02em !important;
     }
 
-    /* Tabs Styling - Understated Line & Box */
     .stTabs [data-baseweb="tab-list"] {
         gap: 6px;
         background-color: transparent;
@@ -83,7 +79,6 @@ st.markdown("""
         font-weight: 600;
     }
 
-    /* Buttons Styling - Solid Flat */
     .stButton>button, .stDownloadButton>button {
         background-color: #18181b !important;
         color: #f4f4f5 !important;
@@ -101,7 +96,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* Sidebar Clean Layout */
     section[data-testid="stSidebar"] {
         background-color: #0c0c0e !important;
         border-right: 1px solid #27272a !important;
@@ -110,7 +104,6 @@ st.markdown("""
         border-color: #27272a;
     }
 
-    /* Inputs & Form Elements */
     .stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #121215 !important;
         border: 1px solid #27272a !important;
@@ -119,7 +112,6 @@ st.markdown("""
         font-size: 0.875rem !important;
     }
 
-    /* Sliders */
     span[data-baseweb="tag"] {
         background-color: #18181b !important;
         color: #e4e4e7 !important;
@@ -140,7 +132,7 @@ st_autorefresh(interval=60 * 1000, key="datarefresh")
 
 st.markdown("## Portfolio Terminal")
 
-# --- GOOGLE SHEETS SETUP ---
+# --- GOOGLE SHEETS & CACHED API HELPERS ---
 def get_g_sheet():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_dict = dict(st.secrets["gcp_service_account"])
@@ -149,7 +141,7 @@ def get_g_sheet():
     sheet = client.open("CryptoPortfolio").sheet1 
     return sheet
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=15)
 def load_transactions_from_sheet():
     try:
         sheet = get_g_sheet()
@@ -175,6 +167,58 @@ def load_transactions_from_sheet():
         st.error(f"Google Sheet Connection Error: {e}")
         return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
 
+@st.cache_data(ttl=60)
+def get_cmc_prices(symbols_list):
+    if not symbols_list:
+        return {}
+    api_key = st.secrets.get("CMC_API_KEY", "")
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+    try:
+        response = requests.get(
+            url, 
+            headers={"Accepts": "application/json", "X-CMC_PRO_API_KEY": api_key}, 
+            params={"symbol": ",".join(symbols_list), "convert": "USD"},
+            timeout=5
+        )
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            return {sym: data[sym]["quote"]["USD"]["price"] for sym in symbols_list if sym in data}
+    except Exception:
+        pass
+    return {}
+
+@st.cache_data(ttl=300)
+def get_fear_and_greed():
+    try:
+        res = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5)
+        data = res.json()
+        return int(data["data"][0]["value"]), data["data"][0]["value_classification"]
+    except Exception:
+        return 50, "Neutral"
+
+@st.cache_data(ttl=300)
+def fetch_asset_technicals(asset):
+    ticker_str = "HYPE32196-USD" if asset == "HYPE" else f"{asset}-USD"
+    try:
+        hist = yf.Ticker(ticker_str).history(period="100d")
+        if hist.empty or len(hist) < 15:
+            hist = yf.Ticker(f"{asset}-USD").history(period="100d")
+        return hist
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def get_eur_rate():
+    try:
+        eur_ticker = yf.Ticker("EURUSD=X")
+        eur_rate = eur_ticker.history(period="1d")['Close'].iloc[-1]
+        return 1.0 / eur_rate
+    except Exception:
+        return 0.92
+
+# --- LOAD DATA ONCE ---
+raw_df_initial = load_transactions_from_sheet()
+
 def get_latest_transaction_date(df):
     if not df.empty:
         for col in df.columns:
@@ -184,20 +228,14 @@ def get_latest_transaction_date(df):
                     return str(valid_dates.max())
     return "N/A"
 
-# Load Initial
-raw_df_initial = load_transactions_from_sheet()
 unique_assets_in_sheet = []
 if not raw_df_initial.empty:
     col_asset = next((c for c in raw_df_initial.columns if 'asset' in c.lower()), 'Asset')
     unique_assets_in_sheet = [str(x).upper().strip() for x in raw_df_initial[col_asset].unique() if str(x).strip() != '']
 
 default_slugs = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "SOL": "solana",
-    "ZEC": "zcash",
-    "HYPE": "hyperliquid",
-    "PUMP": "pump-fun"
+    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", 
+    "ZEC": "zcash", "HYPE": "hyperliquid", "PUMP": "pump-fun"
 }
 
 # --- SIDEBAR: EXECUTION & CONTROL ---
@@ -277,42 +315,6 @@ if not raw_df_initial.empty:
         except Exception as e:
             st.sidebar.error(f"Error: {e}")
 
-# --- PRE-CALCULATE TEMP VALUES FOR TARGET WEIGHTS ---
-@st.cache_data(ttl=25)
-def get_cmc_prices_temp(symbols_list):
-    api_key = st.secrets["CMC_API_KEY"]
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-    try:
-        response = requests.get(url, headers={"Accepts": "application/json", "X-CMC_PRO_API_KEY": api_key}, params={"symbol": ",".join(symbols_list), "convert": "USD"})
-        data = response.json()
-        prices = {}
-        for sym in symbols_list:
-            if sym in data.get("data", {}):
-                prices[sym] = data["data"][sym]["quote"]["USD"]["price"]
-        return prices
-    except:
-        return {}
-
-temp_df = load_transactions_from_sheet()
-temp_portfolio_vals = {}
-tot_val_temp = 0
-
-if not temp_df.empty:
-    c_asset = next((c for c in temp_df.columns if 'asset' in c.lower()), 'Asset')
-    c_amount = next((c for c in temp_df.columns if 'amount' in c.lower()), 'Amount')
-    c_cost = next((c for c in temp_df.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
-    summary_temp = temp_df.groupby(c_asset).agg({c_amount: 'sum', c_cost: 'sum'}).to_dict('index')
-    prices_temp = get_cmc_prices_temp(list(summary_temp.keys()))
-    
-    for ast, dat in summary_temp.items():
-        amt = float(dat[c_amount])
-        cst = float(dat[c_cost])
-        if amt > 1e-5:
-            p = prices_temp.get(ast, cst / amt if amt > 0 else 0)
-            val = amt * p
-            temp_portfolio_vals[ast] = val
-            tot_val_temp += val
-
 # --- TARGET ALLOCATION SETUP ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Target Weights Setup")
@@ -324,74 +326,55 @@ active_dca_assets = st.sidebar.multiselect(
     default=default_dca_selection
 )
 
-target_weights = {}
+# Fetch prices ONCE for the entire application
+cmc_prices = get_cmc_prices(unique_assets_in_sheet)
+
+# Compute current balances for slider initialization
+portfolio_data = {}
+temp_portfolio_vals = {}
+if not raw_df_initial.empty:
+    c_asset = next((c for c in raw_df_initial.columns if 'asset' in c.lower()), 'Asset')
+    c_amount = next((c for c in raw_df_initial.columns if 'amount' in c.lower()), 'Amount')
+    c_cost = next((c for c in raw_df_initial.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
+    
+    summary = raw_df_initial.groupby(c_asset).agg({c_amount: 'sum', c_cost: 'sum'}).to_dict('index')
+    
+    for ast, dat in summary.items():
+        amt = float(dat[c_amount])
+        cst = float(dat[c_cost])
+        portfolio_data[ast] = {
+            'total_cost': cst,
+            'amount': amt,
+            'is_dca': ast in active_dca_assets,
+            'cmc_slug': default_slugs.get(ast, ast.lower())
+        }
+        if amt > 1e-5:
+            p = cmc_prices.get(ast, cst / amt if amt > 0 else 0)
+            temp_portfolio_vals[ast] = amt * p
+
 tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_assets)
 
+target_weights = {}
 for asset in active_dca_assets:
     val = temp_portfolio_vals.get(asset, 0.0)
     auto_pct = (val / tot_dca_val_temp * 100.0) if tot_dca_val_temp > 0 else (100.0 / len(active_dca_assets) if active_dca_assets else 0.0)
-    target_weights[asset] = st.sidebar.slider(f"{asset} Target %", 0.0, 100.0, float(round(auto_pct, 1)), 1.0, key=f"weight_{asset}")
+    
+    key = f"weight_{asset}"
+    if key not in st.session_state:
+        st.session_state[key] = float(round(auto_pct, 1))
+        
+    target_weights[asset] = st.sidebar.slider(f"{asset} Target %", 0.0, 100.0, key=key)
+
+for asset in portfolio_data:
+    portfolio_data[asset]['target_pct'] = (target_weights.get(asset, 0.0) / 100.0) if asset in active_dca_assets else 0.0
 
 total_weight_sum = sum(target_weights.values())
 if active_dca_assets and abs(total_weight_sum - 100.0) > 0.01:
     st.sidebar.caption(f"Warning: Sum is {total_weight_sum:.1f}% (Must equal 100%)")
 
-# --- CORE PORTFOLIO ENGINE ---
-def load_portfolio():
-    df = load_transactions_from_sheet()
-    if df.empty:
-        return {}
-    
-    col_asset = next((c for c in df.columns if 'asset' in c.lower()), 'Asset')
-    col_amount = next((c for c in df.columns if 'amount' in c.lower()), 'Amount')
-    col_cost = next((c for c in df.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
-    
-    summary = df.groupby(col_asset).agg({col_amount: 'sum', col_cost: 'sum'}).to_dict('index')
-    formatted_summary = {}
-    
-    for asset, data in summary.items():
-        amt = float(data[col_amount])
-        cst = float(data[col_cost])
-        assigned_pct = (target_weights.get(asset, 0.0) / 100.0) if asset in active_dca_assets else 0.0
-        
-        formatted_summary[asset] = {
-            'total_cost': cst,
-            'amount': amt,
-            'target_pct': assigned_pct,
-            'is_dca': asset in active_dca_assets,
-            'cmc_slug': default_slugs.get(asset, asset.lower())
-        }
-    return formatted_summary
-
-portfolio_data = load_portfolio()
-
-@st.cache_data(ttl=25)
-def get_cmc_prices(symbols_list):
-    api_key = st.secrets["CMC_API_KEY"]
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-    try:
-        response = requests.get(url, headers={"Accepts": "application/json", "X-CMC_PRO_API_KEY": api_key}, params={"symbol": ",".join(symbols_list), "convert": "USD"})
-        data = response.json()
-        prices = {}
-        for sym in symbols_list:
-            if sym in data.get("data", {}):
-                prices[sym] = data["data"][sym]["quote"]["USD"]["price"]
-        return prices
-    except:
-        return {}
-
-@st.cache_data(ttl=300)
-def get_fear_and_greed():
-    try:
-        res = requests.get("https://api.alternative.me/fng/?limit=1")
-        data = res.json()
-        return int(data["data"][0]["value"]), data["data"][0]["value_classification"]
-    except:
-        return 50, "Neutral"
-
-all_symbols = list(portfolio_data.keys())
-cmc_prices = get_cmc_prices(all_symbols) if all_symbols else {}
+# --- INDICATORS & CORE ENGINE ---
 fng_value, fng_label = get_fear_and_greed()
+usd_to_eur = get_eur_rate()
 
 def get_rsi(series, period=14):
     delta = series.diff()
@@ -418,14 +401,6 @@ def compute_smart_score(stats, fng):
     elif fng > 75: sc -= 15
     return max(0, min(100, sc))
 
-try:
-    eur_ticker = yf.Ticker("EURUSD=X")
-    eur_rate = eur_ticker.history(period="1d")['Close'].iloc[-1]
-    usd_to_eur = 1.0 / eur_rate
-except:
-    usd_to_eur = 0.92
-
-# Metrics Processing & Closed Position Isolation
 current_values = {}
 total_current_portfolio = 0.0
 total_active_cost = 0.0
@@ -442,24 +417,18 @@ for asset, data in portfolio_data.items():
     price = cmc_prices.get(asset, cst / amt if amt > 0 else 0)
     rsi, sma_50, bb_lower = 50.0, price, price * 0.95
     
-    try:
-        ticker_str = "HYPE32196-USD" if asset == "HYPE" else f"{asset}-USD"
-        hist = yf.Ticker(ticker_str).history(period="100d")
-        if hist.empty or len(hist) < 15:
-            hist = yf.Ticker(asset).history(period="100d")
-            
-        if not hist.empty and len(hist) >= 50:
+    hist = fetch_asset_technicals(asset)
+    if not hist.empty:
+        if len(hist) >= 50:
             sma_50 = hist['Close'].tail(50).mean()
-        if not hist.empty and len(hist) >= 20:
+        if len(hist) >= 20:
             rm = hist['Close'].rolling(window=20).mean().iloc[-1]
             rsd = hist['Close'].rolling(window=20).std().iloc[-1]
             bb_lower = rm - (2 * rsd)
-        if not hist.empty and len(hist) >= 15:
+        if len(hist) >= 15:
             rsi_series = get_rsi(hist['Close'])
             if not rsi_series.empty and not pd.isna(rsi_series.iloc[-1]):
                 rsi = float(rsi_series.iloc[-1])
-    except:
-        pass
 
     val = amt * price
     avg_price = (cst / amt) if amt > 0 else 0
@@ -467,14 +436,9 @@ for asset, data in portfolio_data.items():
     pnl_pct = (pnl_usd / cst) * 100 if cst > 0 else 0
 
     temp_stats = {
-        "price": price,
-        "avg_price": avg_price,
-        "current_val": val,
-        "pnl_usd": pnl_usd,
-        "pnl_pct": pnl_pct,
-        "sma_50": sma_50,
-        "bb_lower": bb_lower,
-        "rsi": rsi
+        "price": price, "avg_price": avg_price, "current_val": val,
+        "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "sma_50": sma_50,
+        "bb_lower": bb_lower, "rsi": rsi
     }
     temp_stats["score"] = compute_smart_score(temp_stats, fng_value)
 
@@ -491,7 +455,7 @@ total_pnl_usd = total_unrealized_pnl + total_realized_pnl
 pnl_eur = total_pnl_usd * usd_to_eur
 total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100 if total_invested_cost > 0 else 0
 
-# Allocation calculations
+# Allocations
 strict_allocations = {}
 for asset, data in portfolio_data.items():
     if data["amount"] <= 1e-5 or not data["is_dca"] or asset not in current_values:
@@ -519,11 +483,7 @@ total_smart_weight = total_smart_weight or 1.0
 
 # --- MAIN NAVIGATION TABS ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Overview", 
-    "Analytics", 
-    "Ledgers & Export", 
-    "Smart Advisor",
-    "Risk & Exit Laddering"
+    "Overview", "Analytics", "Ledgers & Export", "Smart Advisor", "Risk & Exit Laddering"
 ])
 
 # --- TAB 1: OVERVIEW ---
@@ -589,13 +549,13 @@ with tab1:
 # --- TAB 2: ANALYTICS ---
 with tab2:
     st.markdown("##### Historical Performance Timeline")
-    raw_tx_df = load_transactions_from_sheet()
-    if not raw_tx_df.empty:
+    if not raw_df_initial.empty:
         try:
-            date_col = next((c for c in raw_tx_df.columns if 'date' in c.lower()), None)
-            cost_col = next((c for c in raw_tx_df.columns if 'cost' in c.lower() or 'usd' in c.lower()), None)
+            date_col = next((c for c in raw_df_initial.columns if 'date' in c.lower()), None)
+            cost_col = next((c for c in raw_df_initial.columns if 'cost' in c.lower() or 'usd' in c.lower()), None)
             
             if date_col and cost_col:
+                raw_tx_df = raw_df_initial.copy()
                 raw_tx_df[date_col] = pd.to_datetime(raw_tx_df[date_col])
                 daily_costs = raw_tx_df.groupby(date_col)[cost_col].sum().reset_index().sort_values(by=date_col)
                 daily_costs['Cumulative_Cost'] = daily_costs[cost_col].cumsum()
@@ -613,7 +573,7 @@ with tab2:
                 fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Portfolio_Value'], mode='lines', name='Market Value ($)', line=dict(color='#3b82f6', width=2), fill='tonexty', fillcolor='rgba(59, 130, 246, 0.05)'))
                 fig_timeline.update_layout(paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", hovermode="x unified", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
                 st.plotly_chart(fig_timeline, width='stretch')
-        except:
+        except Exception:
             pass
 
     col_chart1, col_chart2 = st.columns(2)
@@ -635,13 +595,12 @@ with tab2:
 # --- TAB 3: LEDGERS & EXPORT ---
 with tab3:
     st.markdown("##### Raw Transaction Ledger & Data Export")
-    raw_df = load_transactions_from_sheet()
     
     col_exp1, col_exp2 = st.columns(2)
     
     with col_exp1:
-        if not raw_df.empty:
-            csv_ledger = raw_df.to_csv(index=False).encode('utf-8')
+        if not raw_df_initial.empty:
+            csv_ledger = raw_df_initial.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Transaction Ledger (CSV)",
                 data=csv_ledger,
@@ -660,9 +619,10 @@ with tab3:
             )
 
     st.markdown("---")
-    if not raw_df.empty:
-        raw_df.index = raw_df.index + 1
-        st.dataframe(raw_df, width='stretch')
+    if not raw_df_initial.empty:
+        display_df = raw_df_initial.copy()
+        display_df.index = display_df.index + 1
+        st.dataframe(display_df, width='stretch')
 
 # --- TAB 4: SMART ADVISOR ---
 with tab4:
@@ -693,8 +653,9 @@ with tab4:
                 extract_data = []
                 for asset, stats in profitable_assets.items():
                     dollar_to_pull = target_profit_goal * (stats["pnl_usd"] / total_prof_sum)
-                    amount_to_sell = dollar_to_pull / stats["price"]
-                    pct_of_holding = (amount_to_sell / portfolio_data[asset]["amount"]) * 100
+                    amount_to_sell = dollar_to_pull / stats["price"] if stats["price"] > 0 else 0
+                    holding_amt = portfolio_data[asset]["amount"]
+                    pct_of_holding = (amount_to_sell / holding_amt * 100) if holding_amt > 0 else 0
                     
                     extract_data.append({
                         "Asset": asset,
@@ -734,7 +695,6 @@ with tab5:
             tp3_gain = st.number_input("Target 3 Gain %", value=150.0, step=10.0, key="tp3_g")
             tp3_sell_pct = st.number_input("Sell % of Holdings (T3)", value=40.0, step=5.0, key="tp3_s")
 
-        # Calculations for Laddering
         ladders = [
             ("Tier 1", tp1_gain, tp1_sell_pct),
             ("Tier 2", tp2_gain, tp2_sell_pct),
