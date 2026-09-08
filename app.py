@@ -13,10 +13,10 @@ from google.oauth2.service_account import Credentials
 # --- PAGE CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="DCA Portfolio Terminal")
 
-# --- INSTITUTIONAL / CLEAN FINTECH UI ---
+# --- FINTECH DARK PALETTE & TYPOGRAPHY UI ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
     html, body, .stApp {
         background-color: #09090b !important;
@@ -26,6 +26,7 @@ st.markdown("""
 
     #MainMenu, footer, header {visibility: hidden;}
 
+    /* Metrics Cards */
     div[data-testid="stMetric"] {
         background-color: #121215 !important;
         border: 1px solid #27272a !important;
@@ -34,27 +35,29 @@ st.markdown("""
         box-shadow: none !important;
     }
     div[data-testid="stMetric"] label {
-        color: #71717a !important;
+        color: #a1a1aa !important;
         font-weight: 600 !important;
-        font-size: 0.75rem !important;
+        font-size: 0.72rem !important;
         text-transform: uppercase !important;
-        letter-spacing: 0.05em !important;
+        letter-spacing: 0.08em !important;
     }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         color: #fafafa !important;
         font-weight: 700 !important;
-        font-size: 1.4rem !important;
+        font-size: 1.45rem !important;
         font-family: 'JetBrains Mono', monospace !important;
     }
 
+    /* Headings */
     h1, h2, h3, h4 {
-        color: #fafafa !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
         letter-spacing: -0.02em !important;
     }
 
+    /* Navigation Tabs */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 6px;
+        gap: 4px;
         background-color: transparent;
         padding: 0;
         border-bottom: 1px solid #27272a;
@@ -79,6 +82,7 @@ st.markdown("""
         font-weight: 600;
     }
 
+    /* Standard Buttons */
     .stButton>button, .stDownloadButton>button {
         background-color: #18181b !important;
         color: #f4f4f5 !important;
@@ -96,33 +100,58 @@ st.markdown("""
         color: #ffffff !important;
     }
 
+    /* Sidebar Styling */
     section[data-testid="stSidebar"] {
         background-color: #0c0c0e !important;
         border-right: 1px solid #27272a !important;
     }
     section[data-testid="stSidebar"] hr {
         border-color: #27272a;
+        margin: 1.2rem 0;
     }
 
+    /* Custom Input & Controls */
     .stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
         background-color: #121215 !important;
         border: 1px solid #27272a !important;
         color: #f4f4f5 !important;
         border-radius: 6px !important;
         font-size: 0.875rem !important;
+        font-family: 'JetBrains Mono', monospace !important;
     }
 
+    /* Minus / Plus Quick Action Buttons */
+    div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button {
+        height: 38px !important;
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+        background-color: #141417 !important;
+        border: 1px solid #27272a !important;
+        color: #a1a1aa !important;
+    }
+    div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button:hover {
+        color: #ffffff !important;
+        border-color: #3f3f46 !important;
+        background-color: #27272a !important;
+    }
+
+    /* Custom Sliders */
+    div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
+        background-color: #f4f4f5 !important;
+        border: 2px solid #ffffff !important;
+        box-shadow: 0 0 10px rgba(255,255,255,0.15);
+    }
+    div.stSlider > div[data-baseweb="slider"] div > div > div {
+        background-color: #3f3f46 !important;
+    }
+    
+    /* Multiselect Tags */
     span[data-baseweb="tag"] {
         background-color: #18181b !important;
         color: #e4e4e7 !important;
         border: 1px solid #27272a !important;
-    }
-    div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
-        background-color: #e4e4e7 !important;
-        border-color: #ffffff !important;
-    }
-    div.stSlider > div[data-baseweb="slider"] div > div > div {
-        background-color: #3f3f46 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -296,9 +325,9 @@ st.sidebar.markdown("### Ledger Management")
 if not raw_df_initial.empty:
     last_row = raw_df_initial.iloc[-1]
     st.sidebar.markdown(
-        f"<div style='font-size: 11px; color: #a1a1aa; background: #121215; padding: 10px; border-radius: 6px; border: 1px solid #27272a;'>"
-        f"<b>Last Row:</b> {last_row.get('Date', 'N/A')} | {last_row.get('Asset', 'N/A')}<br>"
-        f"<b>Amt:</b> {last_row.get('Amount', 'N/A')} | <b>Cost:</b> ${last_row.get('USD_Cost', 'N/A')}"
+        f"<div style='font-size: 11px; color: #a1a1aa; background: #121215; padding: 10px; border-radius: 6px; border: 1px solid #27272a; font-family: \"JetBrains Mono\", monospace;'>"
+        f"<b>LAST ROW:</b> {last_row.get('Date', 'N/A')} | {last_row.get('Asset', 'N/A')}<br>"
+        f"<b>AMT:</b> {last_row.get('Amount', 'N/A')} | <b>COST:</b> ${last_row.get('USD_Cost', 'N/A')}"
         f"</div>", 
         unsafe_allow_html=True
     )
@@ -315,7 +344,7 @@ if not raw_df_initial.empty:
         except Exception as e:
             st.sidebar.error(f"Error: {e}")
 
-# --- TARGET ALLOCATION SETUP ---
+# --- TARGET ALLOCATION SETUP (HYBRID INPUT UI) ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Target Weights Setup")
 
@@ -326,10 +355,9 @@ active_dca_assets = st.sidebar.multiselect(
     default=default_dca_selection
 )
 
-# Fetch prices ONCE for the entire application
+# Fetch prices ONCE for the application
 cmc_prices = get_cmc_prices(unique_assets_in_sheet)
 
-# Compute current balances for slider initialization
 portfolio_data = {}
 temp_portfolio_vals = {}
 if not raw_df_initial.empty:
@@ -354,23 +382,79 @@ if not raw_df_initial.empty:
 
 tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_assets)
 
+# Synchronized Callbacks
+def sync_from_num(asset_name):
+    st.session_state[f"slider_{asset_name}"] = st.session_state[f"num_{asset_name}"]
+
+def sync_from_slider(asset_name):
+    st.session_state[f"num_{asset_name}"] = st.session_state[f"slider_{asset_name}"]
+
+def adjust_weight(asset_name, delta):
+    curr = st.session_state.get(f"num_{asset_name}", 0.0)
+    new_val = max(0.0, min(100.0, round(curr + delta, 1)))
+    st.session_state[f"num_{asset_name}"] = new_val
+    st.session_state[f"slider_{asset_name}"] = new_val
+
 target_weights = {}
+
 for asset in active_dca_assets:
     val = temp_portfolio_vals.get(asset, 0.0)
     auto_pct = (val / tot_dca_val_temp * 100.0) if tot_dca_val_temp > 0 else (100.0 / len(active_dca_assets) if active_dca_assets else 0.0)
     
-    key = f"weight_{asset}"
-    if key not in st.session_state:
-        st.session_state[key] = float(round(auto_pct, 1))
+    num_key = f"num_{asset}"
+    slider_key = f"slider_{asset}"
+    
+    if num_key not in st.session_state:
+        st.session_state[num_key] = float(round(auto_pct, 1))
+    if slider_key not in st.session_state:
+        st.session_state[slider_key] = st.session_state[num_key]
+
+    st.sidebar.markdown(f"<div style='font-size: 0.8rem; font-weight: 600; color: #e4e4e7; margin-top: 10px;'>{asset} TARGET WEIGHT</div>", unsafe_allow_html=True)
+    
+    # Minus Button / Text Box / Plus Button layout
+    col_minus, col_box, col_plus = st.sidebar.columns([1, 2.4, 1])
+    
+    with col_minus:
+        st.button("-", key=f"btn_dec_{asset}", on_click=adjust_weight, args=(asset, -1.0), use_container_width=True)
         
-    target_weights[asset] = st.sidebar.slider(f"{asset} Target %", 0.0, 100.0, key=key)
+    with col_box:
+        st.number_input(
+            label=f"{asset}_num",
+            min_value=0.0,
+            max_value=100.0,
+            step=0.5,
+            key=num_key,
+            on_change=sync_from_num,
+            args=(asset,),
+            label_visibility="collapsed"
+        )
+        
+    with col_plus:
+        st.button("+", key=f"btn_inc_{asset}", on_click=adjust_weight, args=(asset, 1.0), use_container_width=True)
+
+    st.sidebar.slider(
+        label=f"{asset}_slider",
+        min_value=0.0,
+        max_value=100.0,
+        key=slider_key,
+        on_change=sync_from_slider,
+        args=(asset,),
+        label_visibility="collapsed"
+    )
+
+    target_weights[asset] = st.session_state[num_key]
 
 for asset in portfolio_data:
     portfolio_data[asset]['target_pct'] = (target_weights.get(asset, 0.0) / 100.0) if asset in active_dca_assets else 0.0
 
 total_weight_sum = sum(target_weights.values())
 if active_dca_assets and abs(total_weight_sum - 100.0) > 0.01:
-    st.sidebar.caption(f"Warning: Sum is {total_weight_sum:.1f}% (Must equal 100%)")
+    st.sidebar.markdown(
+        f"<div style='font-size: 0.78rem; background: #1c1917; color: #f59e0b; padding: 6px 10px; border-radius: 4px; border: 1px solid #78350f; margin-top: 8px; font-family: \"JetBrains Mono\", monospace;'>"
+        f"TOTAL: <b>{total_weight_sum:.1f}%</b> (Target: 100.0%)"
+        f"</div>", 
+        unsafe_allow_html=True
+    )
 
 # --- INDICATORS & CORE ENGINE ---
 fng_value, fng_label = get_fear_and_greed()
