@@ -11,9 +11,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="DCA Portfolio Terminal")
+st.set_page_config(layout="wide", page_title="Portfolio Terminal")
 
-# --- FINTECH DARK PALETTE & TYPOGRAPHY UI ---
+# --- FINTECH DARK PALETTE & MINIMAL TYPOGRAPHY UI ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -44,12 +44,12 @@ st.markdown("""
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         color: #fafafa !important;
         font-weight: 700 !important;
-        font-size: 1.45rem !important;
+        font-size: 1.4rem !important;
         font-family: 'JetBrains Mono', monospace !important;
     }
 
     /* Headings */
-    h1, h2, h3, h4 {
+    h1, h2, h3, h4, h5 {
         color: #ffffff !important;
         font-weight: 600 !important;
         letter-spacing: -0.02em !important;
@@ -245,7 +245,7 @@ def get_eur_rate():
     except Exception:
         return 0.92
 
-# --- LOAD DATA ONCE ---
+# --- LOAD RAW DATA ---
 raw_df_initial = load_transactions_from_sheet()
 
 def get_latest_transaction_date(df):
@@ -257,15 +257,67 @@ def get_latest_transaction_date(df):
                     return str(valid_dates.max())
     return "N/A"
 
-unique_assets_in_sheet = []
-if not raw_df_initial.empty:
-    col_asset = next((c for c in raw_df_initial.columns if 'asset' in c.lower()), 'Asset')
-    unique_assets_in_sheet = [str(x).upper().strip() for x in raw_df_initial[col_asset].unique() if str(x).strip() != '']
-
 default_slugs = {
     "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", 
     "ZEC": "zcash", "HYPE": "hyperliquid", "PUMP": "pump-fun"
 }
+
+# --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE ---
+# This engine processes transactions row-by-row to maintain immaculate average costs,
+# active cost bases, and realized profits/losses across all historical trades.
+asset_states = {}
+
+if not raw_df_initial.empty:
+    df_sorted = raw_df_initial.copy()
+    c_date = next((c for c in df_sorted.columns if 'date' in c.lower()), None)
+    c_asset = next((c for c in df_sorted.columns if 'asset' in c.lower()), 'Asset')
+    c_amount = next((c for c in df_sorted.columns if 'amount' in c.lower()), 'Amount')
+    c_cost = next((c for c in df_sorted.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
+
+    if c_date:
+        try:
+            df_sorted[c_date] = pd.to_datetime(df_sorted[c_date], errors='coerce')
+            df_sorted = df_sorted.sort_values(by=c_date, ascending=True)
+        except Exception:
+            pass
+
+    for _, row in df_sorted.iterrows():
+        ast = str(row.get(c_asset, '')).upper().strip()
+        if not ast:
+            continue
+            
+        try:
+            amt = float(row.get(c_amount, 0.0))
+            cost_val = float(row.get(c_cost, 0.0))
+        except (ValueError, TypeError):
+            continue
+
+        if ast not in asset_states:
+            asset_states[ast] = {'holdings': 0.0, 'cost_basis': 0.0, 'realized_pnl': 0.0}
+        
+        st_asset = asset_states[ast]
+
+        if amt > 0:  # BUY
+            st_asset['holdings'] += amt
+            st_asset['cost_basis'] += abs(cost_val)
+        elif amt < 0:  # SELL or WRITE-OFF
+            sell_qty = abs(amt)
+            proceeds = abs(cost_val)
+            
+            if st_asset['holdings'] > 1e-8:
+                avg_unit_cost = st_asset['cost_basis'] / st_asset['holdings']
+                cost_of_sold = min(st_asset['cost_basis'], sell_qty * avg_unit_cost)
+                
+                pnl_on_sell = proceeds - cost_of_sold
+                st_asset['realized_pnl'] += pnl_on_sell
+                st_asset['cost_basis'] = max(0.0, st_asset['cost_basis'] - cost_of_sold)
+                st_asset['holdings'] = max(0.0, st_asset['holdings'] - sell_qty)
+            else:
+                st_asset['realized_pnl'] += proceeds
+                st_asset['holdings'] = 0.0
+                st_asset['cost_basis'] = 0.0
+
+unique_assets_in_sheet = list(asset_states.keys())
 
 # --- SIDEBAR: EXECUTION & CONTROL ---
 st.sidebar.markdown("### Execution Panel")
@@ -289,30 +341,48 @@ if "Standard" in action_mode:
     if st.sidebar.button("Submit Trade"):
         if amount_input > 0 and cost_input > 0 and asset_input:
             t_date = datetime.now().strftime("%Y-%m-%d")
-            final_amount = -amount_input if "SELL" in tx_type else amount_input
-            final_cost = -cost_input if "SELL" in tx_type else cost_input
             
-            try:
-                sheet = get_g_sheet()
-                sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
-                st.cache_data.clear()
-                st.sidebar.success("Transaction logged.")
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"Execution Error: {e}")
+            if tx_type == "SELL":
+                current_amt = asset_states.get(asset_input, {}).get('holdings', 0.0)
+                if amount_input > current_amt + 1e-6:
+                    st.sidebar.error(f"Insufficient {asset_input} balance! Available: {current_amt:.6f}")
+                else:
+                    final_amount = -amount_input
+                    final_cost = -cost_input
+                    try:
+                        sheet = get_g_sheet()
+                        sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
+                        st.cache_data.clear()
+                        st.sidebar.success(f"SELL transaction logged for {asset_input}.")
+                        st.rerun()
+                    except Exception as e:
+                        st.sidebar.error(f"Execution Error: {e}")
+            else:  # BUY
+                final_amount = amount_input
+                final_cost = cost_input
+                try:
+                    sheet = get_g_sheet()
+                    sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
+                    st.cache_data.clear()
+                    st.sidebar.success("BUY transaction logged.")
+                    st.rerun()
+                except Exception as e:
+                    st.sidebar.error(f"Execution Error: {e}")
         else:
             st.sidebar.error("Provide valid asset, amount, and cost.")
 else:
     burn_asset = st.sidebar.text_input("Asset Ticker", "BTC").upper().strip()
     burn_amount = st.sidebar.number_input("Amount to Remove", value=0.0, format="%.6f")
-    burn_cost_lost = st.sidebar.number_input("Cost Basis Write-off ($)", value=0.0, format="%.2f")
 
     if st.sidebar.button("Log Write-off"):
-        if burn_amount > 0 and burn_cost_lost > 0 and burn_asset:
+        current_amt = asset_states.get(burn_asset, {}).get('holdings', 0.0)
+        if burn_amount > current_amt + 1e-6:
+            st.sidebar.error(f"Insufficient {burn_asset} balance! Available: {current_amt:.6f}")
+        elif burn_amount > 0 and burn_asset:
             t_date = datetime.now().strftime("%Y-%m-%d")
             try:
                 sheet = get_g_sheet()
-                sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", f"-{burn_cost_lost:.2f}"])
+                sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", "0.00"])
                 st.cache_data.clear()
                 st.sidebar.success("Write-off logged.")
                 st.rerun()
@@ -355,34 +425,29 @@ active_dca_assets = st.sidebar.multiselect(
     default=default_dca_selection
 )
 
-# Fetch prices ONCE for the application
+# Fetch prices ONCE for application
 cmc_prices = get_cmc_prices(unique_assets_in_sheet)
 
 portfolio_data = {}
 temp_portfolio_vals = {}
-if not raw_df_initial.empty:
-    c_asset = next((c for c in raw_df_initial.columns if 'asset' in c.lower()), 'Asset')
-    c_amount = next((c for c in raw_df_initial.columns if 'amount' in c.lower()), 'Amount')
-    c_cost = next((c for c in raw_df_initial.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
-    
-    summary = raw_df_initial.groupby(c_asset).agg({c_amount: 'sum', c_cost: 'sum'}).to_dict('index')
-    
-    for ast, dat in summary.items():
-        amt = float(dat[c_amount])
-        cst = float(dat[c_cost])
-        portfolio_data[ast] = {
-            'total_cost': cst,
-            'amount': amt,
-            'is_dca': ast in active_dca_assets,
-            'cmc_slug': default_slugs.get(ast, ast.lower())
-        }
-        if amt > 1e-5:
-            p = cmc_prices.get(ast, cst / amt if amt > 0 else 0)
-            temp_portfolio_vals[ast] = amt * p
+
+for ast, state in asset_states.items():
+    amt = state['holdings']
+    cst = state['cost_basis']
+    portfolio_data[ast] = {
+        'total_cost': cst,
+        'amount': amt,
+        'realized_pnl': state['realized_pnl'],
+        'is_dca': ast in active_dca_assets,
+        'cmc_slug': default_slugs.get(ast, ast.lower())
+    }
+    if amt > 1e-5:
+        p = cmc_prices.get(ast, cst / amt if amt > 0 else 0)
+        temp_portfolio_vals[ast] = amt * p
 
 tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_assets)
 
-# Synchronized Callbacks
+# Callbacks for Slider & Number Box Synchronization
 def sync_from_num(asset_name):
     st.session_state[f"slider_{asset_name}"] = st.session_state[f"num_{asset_name}"]
 
@@ -411,7 +476,6 @@ for asset in active_dca_assets:
 
     st.sidebar.markdown(f"<div style='font-size: 0.8rem; font-weight: 600; color: #e4e4e7; margin-top: 10px;'>{asset} TARGET WEIGHT</div>", unsafe_allow_html=True)
     
-    # Minus Button / Text Box / Plus Button layout
     col_minus, col_box, col_plus = st.sidebar.columns([1, 2.4, 1])
     
     with col_minus:
@@ -451,12 +515,12 @@ total_weight_sum = sum(target_weights.values())
 if active_dca_assets and abs(total_weight_sum - 100.0) > 0.01:
     st.sidebar.markdown(
         f"<div style='font-size: 0.78rem; background: #1c1917; color: #f59e0b; padding: 6px 10px; border-radius: 4px; border: 1px solid #78350f; margin-top: 8px; font-family: \"JetBrains Mono\", monospace;'>"
-        f"TOTAL: <b>{total_weight_sum:.1f}%</b> (Target: 100.0%)"
+        f"TOTAL WEIGHT: <b>{total_weight_sum:.1f}%</b> (Target: 100.0%)"
         f"</div>", 
         unsafe_allow_html=True
     )
 
-# --- INDICATORS & CORE ENGINE ---
+# --- INDICATORS & CORE METRICS ENGINE ---
 fng_value, fng_label = get_fear_and_greed()
 usd_to_eur = get_eur_rate()
 
@@ -488,14 +552,13 @@ def compute_smart_score(stats, fng):
 current_values = {}
 total_current_portfolio = 0.0
 total_active_cost = 0.0
-total_realized_pnl = 0.0
+total_realized_pnl = sum(state['realized_pnl'] for state in asset_states.values())
 
 for asset, data in portfolio_data.items():
     amt = data["amount"]
     cst = data["total_cost"]
     
-    if abs(amt) < 1e-5:
-        total_realized_pnl -= cst
+    if amt <= 1e-5:
         continue 
         
     price = cmc_prices.get(asset, cst / amt if amt > 0 else 0)
@@ -515,14 +578,20 @@ for asset, data in portfolio_data.items():
                 rsi = float(rsi_series.iloc[-1])
 
     val = amt * price
-    avg_price = (cst / amt) if amt > 0 else 0
-    pnl_usd = val - cst
-    pnl_pct = (pnl_usd / cst) * 100 if cst > 0 else 0
+    avg_price = (cst / amt) if amt > 0 else 0.0
+    pnl_unrealized_usd = val - cst
+    pnl_unrealized_pct = (pnl_unrealized_usd / cst) * 100 if cst > 0 else 0.0
 
     temp_stats = {
-        "price": price, "avg_price": avg_price, "current_val": val,
-        "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "sma_50": sma_50,
-        "bb_lower": bb_lower, "rsi": rsi
+        "price": price, 
+        "avg_price": avg_price, 
+        "current_val": val,
+        "pnl_usd": pnl_unrealized_usd,          # Unrealized PnL
+        "pnl_pct": pnl_unrealized_pct,          # Unrealized PnL %
+        "realized_pnl": data["realized_pnl"],   # Realized PnL
+        "sma_50": sma_50,
+        "bb_lower": bb_lower, 
+        "rsi": rsi
     }
     temp_stats["score"] = compute_smart_score(temp_stats, fng_value)
 
@@ -530,16 +599,15 @@ for asset, data in portfolio_data.items():
     total_current_portfolio += val
     total_active_cost += cst
 
-total_invested_cost = total_active_cost
 new_total_portfolio = total_current_portfolio + new_cash_to_invest
 tot_eur = total_current_portfolio * usd_to_eur
 
 total_unrealized_pnl = total_current_portfolio - total_active_cost
-total_pnl_usd = total_unrealized_pnl + total_realized_pnl
-pnl_eur = total_pnl_usd * usd_to_eur
-total_pnl_pct = (total_pnl_usd / total_invested_cost) * 100 if total_invested_cost > 0 else 0
+total_net_pnl_usd = total_unrealized_pnl + total_realized_pnl
+pnl_eur = total_net_pnl_usd * usd_to_eur
+total_pnl_pct = (total_net_pnl_usd / total_active_cost) * 100 if total_active_cost > 0 else 0.0
 
-# Allocations
+# DCA Allocations Logic
 strict_allocations = {}
 for asset, data in portfolio_data.items():
     if data["amount"] <= 1e-5 or not data["is_dca"] or asset not in current_values:
@@ -574,11 +642,15 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 with tab1:
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Portfolio Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
-    c2.metric("Net Realized & Unrealized PnL", f"${total_pnl_usd:+,.2f}", f"{total_pnl_pct:+.2f}% ({pnl_eur:+,.2f}€)")
+    c2.metric(
+        "Net PnL (Unrealized + Realized)", 
+        f"${total_net_pnl_usd:+,.2f}", 
+        f"Unrealized: ${total_unrealized_pnl:+,.2f} | Realized: ${total_realized_pnl:+,.2f}"
+    )
     c3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
 
     st.markdown("---")
-    st.markdown("##### Portfolio Positions & Allocation Matrix")
+    st.markdown("##### Active Positions & Allocation Matrix")
 
     table_data = []
     for asset, data in portfolio_data.items():
@@ -594,11 +666,12 @@ with tab1:
             smart_str = f"${smart_buy:.2f}"
             new_avg_str = f"${new_avg:.2f}"
         else:
-            strict_str = "N/A (External)"
-            smart_str = "N/A (External)"
+            strict_str = "N/A"
+            smart_str = "N/A"
             new_avg_str = f"${stats['avg_price']:.2f}"
 
-        pnl_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
+        unrealized_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
+        realized_str = f"{stats['realized_pnl']:+.2f}$"
         slug = data.get("cmc_slug", asset.lower())
         cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
 
@@ -606,12 +679,13 @@ with tab1:
             "Coin": cmc_url,
             "Asset": asset,
             "Invested_Numeric": data['total_cost'],
-            "Holdings": f"{data['amount']:.6f} (${data['total_cost']:.2f})",
+            "Holdings": f"{data['amount']:.6f} (${stats['current_val']:,.2f})",
             "Avg Price": f"${stats['avg_price']:.2f}",
             "New Avg": new_avg_str,
             "Current Price": f"${stats['price']:.2f}",
             "RSI (14)": f"{stats['rsi']:.1f}",
-            "PnL": pnl_str,
+            "Unrealized PnL": unrealized_str,
+            "Realized PnL": realized_str,
             "Strict Buy": strict_str,
             "Smart Buy": smart_str
         })
@@ -632,7 +706,7 @@ with tab1:
 
 # --- TAB 2: ANALYTICS ---
 with tab2:
-    st.markdown("##### Historical Performance Timeline")
+    st.markdown("##### Capital Invested & Portfolio Value Timeline")
     if not raw_df_initial.empty:
         try:
             date_col = next((c for c in raw_df_initial.columns if 'date' in c.lower()), None)
@@ -640,7 +714,9 @@ with tab2:
             
             if date_col and cost_col:
                 raw_tx_df = raw_df_initial.copy()
-                raw_tx_df[date_col] = pd.to_datetime(raw_tx_df[date_col])
+                raw_tx_df[date_col] = pd.to_datetime(raw_tx_df[date_col], errors='coerce')
+                raw_tx_df = raw_tx_df.dropna(subset=[date_col])
+                
                 daily_costs = raw_tx_df.groupby(date_col)[cost_col].sum().reset_index().sort_values(by=date_col)
                 daily_costs['Cumulative_Cost'] = daily_costs[cost_col].cumsum()
                 
@@ -653,7 +729,7 @@ with tab2:
                 timeline_df['Portfolio_Value'] = np.linspace(cost_start, total_current_portfolio, days_count)
 
                 fig_timeline = go.Figure()
-                fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Cumulative_Cost'], mode='lines', name='Basis Cost ($)', line=dict(color='#71717a', width=1.5)))
+                fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Cumulative_Cost'], mode='lines', name='Active Net Cost ($)', line=dict(color='#71717a', width=1.5)))
                 fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Portfolio_Value'], mode='lines', name='Market Value ($)', line=dict(color='#3b82f6', width=2), fill='tonexty', fillcolor='rgba(59, 130, 246, 0.05)'))
                 fig_timeline.update_layout(paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", hovermode="x unified", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
                 st.plotly_chart(fig_timeline, width='stretch')
@@ -663,17 +739,17 @@ with tab2:
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1:
         if current_values:
-            fig_pie = px.pie(names=list(current_values.keys()), values=[info["current_val"] for info in current_values.values()], title="Asset Share", hole=0.45)
+            fig_pie = px.pie(names=list(current_values.keys()), values=[info["current_val"] for info in current_values.values()], title="Asset Weight Distribution", hole=0.45)
             fig_pie.update_layout(paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5")
             st.plotly_chart(fig_pie, width='stretch')
         
     with col_chart2:
         if current_values:
             assets_list = list(current_values.keys())
-            pnl_vals = [info["pnl_usd"] for info in current_values.values()]
-            colors = ['#10b981' if v >= 0 else '#ef4444' for v in pnl_vals]
-            fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=pnl_vals, marker_color=colors)])
-            fig_bar.update_layout(title="Net PnL per Asset ($)", paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
+            net_pnls = [info["pnl_usd"] + info["realized_pnl"] for info in current_values.values()]
+            colors = ['#10b981' if v >= 0 else '#ef4444' for v in net_pnls]
+            fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=net_pnls, marker_color=colors)])
+            fig_bar.update_layout(title="Total Net PnL (Unrealized + Realized) ($)", paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
             st.plotly_chart(fig_bar, width='stretch')
 
 # --- TAB 3: LEDGERS & EXPORT ---
@@ -730,7 +806,7 @@ with tab4:
     with col_adv_2:
         st.markdown("##### Target Profit Extractor")
         target_profit_goal = st.number_input("Desired Profit Extraction ($)", value=200.0, step=50.0)
-        if total_pnl_usd > 0:
+        if total_unrealized_pnl > 0:
             profitable_assets = {k: v for k, v in current_values.items() if v["pnl_usd"] > 0}
             if profitable_assets:
                 total_prof_sum = sum(v["pnl_usd"] for v in profitable_assets.values())
@@ -749,7 +825,7 @@ with tab4:
                     })
                 st.table(pd.DataFrame(extract_data))
 
-# --- TAB 5: RISK & TAKE-PROFIT LADDERING ---
+# --- TAB 5: RISK & EXIT LADDERING ---
 with tab5:
     st.markdown("##### Take-Profit Laddering Strategy")
     st.caption("Ορίστε σταδιακά επίπεδα πωλήσεων (Laddering) για να κλειδώνετε κέρδη με βάση το πλάνο σας.")
