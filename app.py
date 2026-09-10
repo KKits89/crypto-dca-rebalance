@@ -263,8 +263,6 @@ default_slugs = {
 }
 
 # --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE ---
-# This engine processes transactions row-by-row to maintain immaculate average costs,
-# active cost bases, and realized profits/losses across all historical trades.
 asset_states = {}
 
 if not raw_df_initial.empty:
@@ -586,8 +584,8 @@ for asset, data in portfolio_data.items():
         "price": price, 
         "avg_price": avg_price, 
         "current_val": val,
-        "pnl_usd": pnl_unrealized_usd,          # Unrealized PnL
-        "pnl_pct": pnl_unrealized_pct,          # Unrealized PnL %
+        "pnl_usd": pnl_unrealized_usd,         # Unrealized PnL
+        "pnl_pct": pnl_unrealized_pct,         # Unrealized PnL %
         "realized_pnl": data["realized_pnl"],   # Realized PnL
         "sma_50": sma_50,
         "bb_lower": bb_lower, 
@@ -697,7 +695,7 @@ with tab1:
     
     st.dataframe(
         df_metrics,
-        width='stretch',
+        use_container_width=True,
         column_config={
             "Coin": st.column_config.LinkColumn("Coin Link", display_text=r"https://coinmarketcap.com/currencies/(.*?)/"),
             "Asset": None
@@ -732,7 +730,7 @@ with tab2:
                 fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Cumulative_Cost'], mode='lines', name='Active Net Cost ($)', line=dict(color='#71717a', width=1.5)))
                 fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Portfolio_Value'], mode='lines', name='Market Value ($)', line=dict(color='#3b82f6', width=2), fill='tonexty', fillcolor='rgba(59, 130, 246, 0.05)'))
                 fig_timeline.update_layout(paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", hovermode="x unified", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
-                st.plotly_chart(fig_timeline, width='stretch')
+                st.plotly_chart(fig_timeline, use_container_width=True)
         except Exception:
             pass
 
@@ -741,7 +739,7 @@ with tab2:
         if current_values:
             fig_pie = px.pie(names=list(current_values.keys()), values=[info["current_val"] for info in current_values.values()], title="Asset Weight Distribution", hole=0.45)
             fig_pie.update_layout(paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5")
-            st.plotly_chart(fig_pie, width='stretch')
+            st.plotly_chart(fig_pie, use_container_width=True)
         
     with col_chart2:
         if current_values:
@@ -750,7 +748,7 @@ with tab2:
             colors = ['#10b981' if v >= 0 else '#ef4444' for v in net_pnls]
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=net_pnls, marker_color=colors)])
             fig_bar.update_layout(title="Total Net PnL (Unrealized + Realized) ($)", paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
-            st.plotly_chart(fig_bar, width='stretch')
+            st.plotly_chart(fig_bar, use_container_width=True)
 
 # --- TAB 3: LEDGERS & EXPORT ---
 with tab3:
@@ -782,7 +780,7 @@ with tab3:
     if not raw_df_initial.empty:
         display_df = raw_df_initial.copy()
         display_df.index = display_df.index + 1
-        st.dataframe(display_df, width='stretch')
+        st.dataframe(display_df, use_container_width=True)
 
 # --- TAB 4: SMART ADVISOR ---
 with tab4:
@@ -802,7 +800,7 @@ with tab4:
                 st.info("Neutral Market Conditions (Standard DCA)")
             else:
                 st.warning("Overbought / Hold Cash Zone")
-                    
+                
     with col_adv_2:
         st.markdown("##### Target Profit Extractor")
         target_profit_goal = st.number_input("Desired Profit Extraction ($)", value=200.0, step=50.0)
