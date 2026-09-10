@@ -262,7 +262,7 @@ default_slugs = {
     "ZEC": "zcash", "HYPE": "hyperliquid", "PUMP": "pump-fun"
 }
 
-# --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE ---
+# --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE (FIXED FOR PUMP-FUN & GHOST HOLDINGS) ---
 asset_states = {}
 
 if not raw_df_initial.empty:
@@ -302,7 +302,12 @@ if not raw_df_initial.empty:
             sell_qty = abs(amt)
             proceeds = abs(cost_val)
             
-            if st_asset['holdings'] > 1e-8:
+            # ΔΙΟΡΘΩΣΗ: Έλεγχος πλήρους εκκαθάρισης (εξαφάνιση "φαντασμάτων" π.χ. στο PUMP)
+            if sell_qty >= st_asset['holdings'] - 1e-6 or st_asset['holdings'] <= 1e-8:
+                st_asset['realized_pnl'] += proceeds - st_asset['cost_basis']
+                st_asset['holdings'] = 0.0
+                st_asset['cost_basis'] = 0.0
+            else:
                 avg_unit_cost = st_asset['cost_basis'] / st_asset['holdings']
                 cost_of_sold = min(st_asset['cost_basis'], sell_qty * avg_unit_cost)
                 
@@ -310,10 +315,10 @@ if not raw_df_initial.empty:
                 st_asset['realized_pnl'] += pnl_on_sell
                 st_asset['cost_basis'] = max(0.0, st_asset['cost_basis'] - cost_of_sold)
                 st_asset['holdings'] = max(0.0, st_asset['holdings'] - sell_qty)
-            else:
-                st_asset['realized_pnl'] += proceeds
-                st_asset['holdings'] = 0.0
-                st_asset['cost_basis'] = 0.0
+                
+                if st_asset['holdings'] < 1e-6:
+                    st_asset['holdings'] = 0.0
+                    st_asset['cost_basis'] = 0.0
 
 unique_assets_in_sheet = list(asset_states.keys())
 
@@ -423,7 +428,6 @@ active_dca_assets = st.sidebar.multiselect(
     default=default_dca_selection
 )
 
-# Fetch prices ONCE for application
 cmc_prices = get_cmc_prices(unique_assets_in_sheet)
 
 portfolio_data = {}
@@ -445,7 +449,6 @@ for ast, state in asset_states.items():
 
 tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_assets)
 
-# Callbacks for Slider & Number Box Synchronization
 def sync_from_num(asset_name):
     st.session_state[f"slider_{asset_name}"] = st.session_state[f"num_{asset_name}"]
 
@@ -584,8 +587,8 @@ for asset, data in portfolio_data.items():
         "price": price, 
         "avg_price": avg_price, 
         "current_val": val,
-        "pnl_usd": pnl_unrealized_usd,         # Unrealized PnL
-        "pnl_pct": pnl_unrealized_pct,         # Unrealized PnL %
+        "pnl_usd": pnl_unrealized_usd,          # Unrealized PnL
+        "pnl_pct": pnl_unrealized_pct,          # Unrealized PnL %
         "realized_pnl": data["realized_pnl"],   # Realized PnL
         "sma_50": sma_50,
         "bb_lower": bb_lower, 
@@ -695,7 +698,7 @@ with tab1:
     
     st.dataframe(
         df_metrics,
-        use_container_width=True,
+        width='stretch',
         column_config={
             "Coin": st.column_config.LinkColumn("Coin Link", display_text=r"https://coinmarketcap.com/currencies/(.*?)/"),
             "Asset": None
@@ -730,7 +733,7 @@ with tab2:
                 fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Cumulative_Cost'], mode='lines', name='Active Net Cost ($)', line=dict(color='#71717a', width=1.5)))
                 fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Portfolio_Value'], mode='lines', name='Market Value ($)', line=dict(color='#3b82f6', width=2), fill='tonexty', fillcolor='rgba(59, 130, 246, 0.05)'))
                 fig_timeline.update_layout(paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", hovermode="x unified", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
-                st.plotly_chart(fig_timeline, use_container_width=True)
+                st.plotly_chart(fig_timeline, width='stretch')
         except Exception:
             pass
 
@@ -739,7 +742,7 @@ with tab2:
         if current_values:
             fig_pie = px.pie(names=list(current_values.keys()), values=[info["current_val"] for info in current_values.values()], title="Asset Weight Distribution", hole=0.45)
             fig_pie.update_layout(paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5")
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width='stretch')
         
     with col_chart2:
         if current_values:
@@ -748,7 +751,7 @@ with tab2:
             colors = ['#10b981' if v >= 0 else '#ef4444' for v in net_pnls]
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=net_pnls, marker_color=colors)])
             fig_bar.update_layout(title="Total Net PnL (Unrealized + Realized) ($)", paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width='stretch')
 
 # --- TAB 3: LEDGERS & EXPORT ---
 with tab3:
@@ -780,7 +783,7 @@ with tab3:
     if not raw_df_initial.empty:
         display_df = raw_df_initial.copy()
         display_df.index = display_df.index + 1
-        st.dataframe(display_df, use_container_width=True)
+        st.dataframe(display_df, width='stretch')
 
 # --- TAB 4: SMART ADVISOR ---
 with tab4:
@@ -800,7 +803,7 @@ with tab4:
                 st.info("Neutral Market Conditions (Standard DCA)")
             else:
                 st.warning("Overbought / Hold Cash Zone")
-                
+                    
     with col_adv_2:
         st.markdown("##### Target Profit Extractor")
         target_profit_goal = st.number_input("Desired Profit Extraction ($)", value=200.0, step=50.0)
