@@ -262,7 +262,7 @@ default_slugs = {
     "ZEC": "zcash", "HYPE": "hyperliquid", "PUMP": "pump-fun"
 }
 
-# --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE (FIXED FOR PUMP-FUN & GHOST HOLDINGS) ---
+# --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE (ROBUST FIX FOR PUMP-FUN & GHOST HOLDINGS) ---
 asset_states = {}
 
 if not raw_df_initial.empty:
@@ -285,8 +285,8 @@ if not raw_df_initial.empty:
             continue
             
         try:
-            amt = float(row.get(c_amount, 0.0))
-            cost_val = float(row.get(c_cost, 0.0))
+            amt = float(str(row.get(c_amount, 0.0)).replace(',', ''))
+            cost_val = float(str(row.get(c_cost, 0.0)).replace(',', ''))
         except (ValueError, TypeError):
             continue
 
@@ -302,13 +302,13 @@ if not raw_df_initial.empty:
             sell_qty = abs(amt)
             proceeds = abs(cost_val)
             
-            # ΔΙΟΡΘΩΣΗ: Έλεγχος πλήρους εκκαθάρισης (εξαφάνιση "φαντασμάτων" π.χ. στο PUMP)
-            if sell_qty >= st_asset['holdings'] - 1e-6 or st_asset['holdings'] <= 1e-8:
+            # ΔΙΟΡΘΩΣΗ: Πλήρης εκκαθάριση (εξαφάνιση "φαντασμάτων" π.χ. στο PUMP)
+            if sell_qty >= st_asset['holdings'] - 1e-4 or st_asset['holdings'] <= 1e-4:
                 st_asset['realized_pnl'] += proceeds - st_asset['cost_basis']
                 st_asset['holdings'] = 0.0
                 st_asset['cost_basis'] = 0.0
             else:
-                avg_unit_cost = st_asset['cost_basis'] / st_asset['holdings']
+                avg_unit_cost = st_asset['cost_basis'] / st_asset['holdings'] if st_asset['holdings'] > 0 else 0
                 cost_of_sold = min(st_asset['cost_basis'], sell_qty * avg_unit_cost)
                 
                 pnl_on_sell = proceeds - cost_of_sold
@@ -316,7 +316,7 @@ if not raw_df_initial.empty:
                 st_asset['cost_basis'] = max(0.0, st_asset['cost_basis'] - cost_of_sold)
                 st_asset['holdings'] = max(0.0, st_asset['holdings'] - sell_qty)
                 
-                if st_asset['holdings'] < 1e-6:
+                if st_asset['holdings'] < 1e-4:
                     st_asset['holdings'] = 0.0
                     st_asset['cost_basis'] = 0.0
 
@@ -347,7 +347,7 @@ if "Standard" in action_mode:
             
             if tx_type == "SELL":
                 current_amt = asset_states.get(asset_input, {}).get('holdings', 0.0)
-                if amount_input > current_amt + 1e-6:
+                if amount_input > current_amt + 1e-4:
                     st.sidebar.error(f"Insufficient {asset_input} balance! Available: {current_amt:.6f}")
                 else:
                     final_amount = -amount_input
@@ -379,7 +379,7 @@ else:
 
     if st.sidebar.button("Log Write-off"):
         current_amt = asset_states.get(burn_asset, {}).get('holdings', 0.0)
-        if burn_amount > current_amt + 1e-6:
+        if burn_amount > current_amt + 1e-4:
             st.sidebar.error(f"Insufficient {burn_asset} balance! Available: {current_amt:.6f}")
         elif burn_amount > 0 and burn_asset:
             t_date = datetime.now().strftime("%Y-%m-%d")
@@ -443,7 +443,7 @@ for ast, state in asset_states.items():
         'is_dca': ast in active_dca_assets,
         'cmc_slug': default_slugs.get(ast, ast.lower())
     }
-    if amt > 1e-5:
+    if amt > 1e-4:
         p = cmc_prices.get(ast, cst / amt if amt > 0 else 0)
         temp_portfolio_vals[ast] = amt * p
 
@@ -559,7 +559,7 @@ for asset, data in portfolio_data.items():
     amt = data["amount"]
     cst = data["total_cost"]
     
-    if amt <= 1e-5:
+    if amt <= 1e-4:
         continue 
         
     price = cmc_prices.get(asset, cst / amt if amt > 0 else 0)
@@ -611,7 +611,7 @@ total_pnl_pct = (total_net_pnl_usd / total_active_cost) * 100 if total_active_co
 # DCA Allocations Logic
 strict_allocations = {}
 for asset, data in portfolio_data.items():
-    if data["amount"] <= 1e-5 or not data["is_dca"] or asset not in current_values:
+    if data["amount"] <= 1e-4 or not data["is_dca"] or asset not in current_values:
         continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
@@ -622,7 +622,7 @@ total_strict_weight = sum(strict_allocations.values()) or 1.0
 smart_allocations = {}
 total_smart_weight = 0
 for asset, data in portfolio_data.items():
-    if data["amount"] <= 1e-5 or not data["is_dca"] or asset not in current_values:
+    if data["amount"] <= 1e-4 or not data["is_dca"] or asset not in current_values:
         continue
     cur_val = current_values[asset]["current_val"]
     ideal_val = new_total_portfolio * data["target_pct"]
@@ -655,7 +655,7 @@ with tab1:
 
     table_data = []
     for asset, data in portfolio_data.items():
-        if data["amount"] <= 1e-5 or asset not in current_values:
+        if data["amount"] <= 1e-4 or asset not in current_values:
             continue
         stats = current_values[asset]
         
@@ -887,7 +887,7 @@ with tab5:
     calc_basis = st.radio("Basis:", ["Current Price", "Average Cost"], horizontal=True)
     
     for asset, data in portfolio_data.items():
-        if data["amount"] <= 1e-5 or asset not in current_values:
+        if data["amount"] <= 1e-4 or asset not in current_values:
             continue
         stats = current_values[asset]
         base_price = stats['price'] if "Current" in calc_basis else stats['avg_price']
@@ -903,3 +903,4 @@ with tab5:
             tp_pct = st.slider(f"TP % {asset}", 5.0, 300.0, 50.0, step=5.0, key=f"tp_{asset}", label_visibility="collapsed")
             tp_price = base_price * (1 + tp_pct / 100.0)
             st.markdown(f"TP: `${tp_price:,.2f}` (+{tp_pct}%)")
+
