@@ -397,7 +397,6 @@ action_mode = st.sidebar.radio(
     ["Standard Trade", "External Loss / Write-off"],
     horizontal=False
 )
-st.sidebar.caption("SELL = negative Amount + negative USD_Cost. Write-off = negative Amount + USD_Cost $0.00.")
 
 if "Standard" in action_mode:
     tx_type = st.sidebar.radio("Direction:", ["BUY", "SELL"], horizontal=True)
