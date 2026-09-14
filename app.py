@@ -262,11 +262,26 @@ default_slugs = {
     "ZEC": "zcash", "HYPE": "hyperliquid", "PUMP": "pump-fun"
 }
 
-# --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE (ROBUST FIX FOR PUMP-FUN & GHOST HOLDINGS) ---
+# --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE ---
+# Ledger convention:
+#   BUY       -> Amount > 0, USD_Cost > 0
+#   SELL      -> Amount < 0, USD_Cost < 0 (negative cash proceeds)
+#   WRITE-OFF -> Amount < 0, USD_Cost = 0
+#
+# Important:
+# - Realized PnL stays with the asset after a full sale.
+# - A later BUY of another asset (e.g. sell SOL -> buy BTC) does NOT erase
+#   the realized PnL of SOL.
+# - Unrealized PnL is calculated only on currently held coins.
+# - Net PnL = realized PnL + unrealized PnL.
+# - Gross invested capital tracks ALL BUY costs, so the overall PnL %
+#   remains meaningful even after positions are fully sold.
+
 asset_states = {}
 
 if not raw_df_initial.empty:
     df_sorted = raw_df_initial.copy()
+
     c_date = next((c for c in df_sorted.columns if 'date' in c.lower()), None)
     c_asset = next((c for c in df_sorted.columns if 'asset' in c.lower()), 'Asset')
     c_amount = next((c for c in df_sorted.columns if 'amount' in c.lower()), 'Amount')
@@ -275,7 +290,13 @@ if not raw_df_initial.empty:
     if c_date:
         try:
             df_sorted[c_date] = pd.to_datetime(df_sorted[c_date], errors='coerce')
-            df_sorted = df_sorted.sort_values(by=c_date, ascending=True)
+            # Stable sort keeps original Sheet order for transactions on the same date.
+            df_sorted["_sheet_order"] = np.arange(len(df_sorted))
+            df_sorted = df_sorted.sort_values(
+                by=[c_date, "_sheet_order"],
+                ascending=[True, True],
+                na_position="last"
+            )
         except Exception:
             pass
 
@@ -283,42 +304,80 @@ if not raw_df_initial.empty:
         ast = str(row.get(c_asset, '')).upper().strip()
         if not ast:
             continue
-            
+
         try:
             amt = float(str(row.get(c_amount, 0.0)).replace(',', ''))
             cost_val = float(str(row.get(c_cost, 0.0)).replace(',', ''))
         except (ValueError, TypeError):
             continue
 
+        if not np.isfinite(amt) or not np.isfinite(cost_val) or abs(amt) < 1e-12:
+            continue
+
         if ast not in asset_states:
-            asset_states[ast] = {'holdings': 0.0, 'cost_basis': 0.0, 'realized_pnl': 0.0}
-        
+            asset_states[ast] = {
+                'holdings': 0.0,
+                'cost_basis': 0.0,
+                'realized_pnl': 0.0,
+                'gross_buy_cost': 0.0,
+                'realized_cost_basis': 0.0
+            }
+
         st_asset = asset_states[ast]
 
-        if amt > 0:  # BUY
+        if amt > 0:
+            # BUY
+            buy_cost = abs(cost_val)
             st_asset['holdings'] += amt
-            st_asset['cost_basis'] += abs(cost_val)
-        elif amt < 0:  # SELL or WRITE-OFF
+            st_asset['cost_basis'] += buy_cost
+            st_asset['gross_buy_cost'] += buy_cost
+
+        else:
+            # Negative Amount = removal from holdings.
             sell_qty = abs(amt)
-            proceeds = abs(cost_val)
-            
-            # ΔΙΟΡΘΩΣΗ: Πλήρης εκκαθάριση (εξαφάνιση "φαντασμάτων" π.χ. στο PUMP)
-            if sell_qty >= st_asset['holdings'] - 1e-4 or st_asset['holdings'] <= 1e-4:
-                st_asset['realized_pnl'] += proceeds - st_asset['cost_basis']
+
+            if st_asset['holdings'] <= 1e-12:
+                # No remaining position: ignore an orphan removal rather than
+                # creating negative holdings or artificial PnL.
+                continue
+
+            # A zero-cost negative transaction is the app's WRITE-OFF format.
+            is_writeoff = abs(cost_val) <= 1e-12
+
+            # Never remove more than the actual holding.
+            qty_removed = min(sell_qty, st_asset['holdings'])
+
+            avg_unit_cost = (
+                st_asset['cost_basis'] / st_asset['holdings']
+                if st_asset['holdings'] > 0 else 0.0
+            )
+            cost_removed = min(
+                st_asset['cost_basis'],
+                qty_removed * avg_unit_cost
+            )
+
+            if is_writeoff:
+                # No cash proceeds. The removed cost becomes a realized loss.
+                proceeds = 0.0
+            else:
+                # SELL: USD_Cost is stored as a negative number.
+                proceeds = abs(cost_val)
+
+            st_asset['realized_pnl'] += proceeds - cost_removed
+            st_asset['realized_cost_basis'] += cost_removed
+            st_asset['holdings'] = max(0.0, st_asset['holdings'] - qty_removed)
+            st_asset['cost_basis'] = max(0.0, st_asset['cost_basis'] - cost_removed)
+
+            # Remove floating-point dust.
+            if st_asset['holdings'] <= 1e-8:
                 st_asset['holdings'] = 0.0
                 st_asset['cost_basis'] = 0.0
-            else:
-                avg_unit_cost = st_asset['cost_basis'] / st_asset['holdings'] if st_asset['holdings'] > 0 else 0
-                cost_of_sold = min(st_asset['cost_basis'], sell_qty * avg_unit_cost)
-                
-                pnl_on_sell = proceeds - cost_of_sold
-                st_asset['realized_pnl'] += pnl_on_sell
-                st_asset['cost_basis'] = max(0.0, st_asset['cost_basis'] - cost_of_sold)
-                st_asset['holdings'] = max(0.0, st_asset['holdings'] - sell_qty)
-                
-                if st_asset['holdings'] < 1e-4:
-                    st_asset['holdings'] = 0.0
-                    st_asset['cost_basis'] = 0.0
+
+# Remove helper column if it was created.
+if "_sheet_order" in df_sorted.columns if not raw_df_initial.empty else False:
+    df_sorted = df_sorted.drop(columns=["_sheet_order"], errors="ignore")
+
+unique_assets_in_sheet = list(asset_states.keys())
 
 unique_assets_in_sheet = list(asset_states.keys())
 
@@ -333,7 +392,12 @@ st.sidebar.markdown("### Transaction Entry")
 latest_date = get_latest_transaction_date(raw_df_initial)
 st.sidebar.caption(f"Last Transaction: {latest_date}")
 
-action_mode = st.sidebar.radio("Entry Type:", ["Standard Trade", "External Loss / Write-off"], horizontal=False)
+action_mode = st.sidebar.radio(
+    "Entry Type:",
+    ["Standard Trade", "External Loss / Write-off"],
+    horizontal=False
+)
+st.sidebar.caption("SELL = negative Amount + negative USD_Cost. Write-off = negative Amount + USD_Cost $0.00.")
 
 if "Standard" in action_mode:
     tx_type = st.sidebar.radio("Direction:", ["BUY", "SELL"], horizontal=True)
@@ -554,6 +618,7 @@ current_values = {}
 total_current_portfolio = 0.0
 total_active_cost = 0.0
 total_realized_pnl = sum(state['realized_pnl'] for state in asset_states.values())
+total_gross_invested = sum(state.get('gross_buy_cost', 0.0) for state in asset_states.values())
 
 for asset, data in portfolio_data.items():
     amt = data["amount"]
@@ -606,7 +671,14 @@ tot_eur = total_current_portfolio * usd_to_eur
 total_unrealized_pnl = total_current_portfolio - total_active_cost
 total_net_pnl_usd = total_unrealized_pnl + total_realized_pnl
 pnl_eur = total_net_pnl_usd * usd_to_eur
-total_pnl_pct = (total_net_pnl_usd / total_active_cost) * 100 if total_active_cost > 0 else 0.0
+
+# Overall return is measured against ALL capital ever used for BUYs,
+# not only the cost basis of positions that are still open.
+# This prevents the percentage from becoming distorted after a full sale.
+total_pnl_pct = (
+    (total_net_pnl_usd / total_gross_invested) * 100
+    if total_gross_invested > 0 else 0.0
+)
 
 # DCA Allocations Logic
 strict_allocations = {}
@@ -649,6 +721,7 @@ with tab1:
         f"Unrealized: ${total_unrealized_pnl:+,.2f} | Realized: ${total_realized_pnl:+,.2f}"
     )
     c3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
+    st.caption("Accounting: SELL realizes PnL; BUY creates a new cost basis. Selling SOL and later buying BTC keeps SOL realized PnL separate from BTC unrealized PnL.")
 
     st.markdown("---")
     st.markdown("##### Active Positions & Allocation Matrix")
