@@ -11,7 +11,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="Portfolio Terminal")
+st.set_page_config(layout="wide", page_title="Portfolio Terminal", initial_sidebar_state="expanded")
 
 # --- FINTECH DARK PALETTE & MINIMAL TYPOGRAPHY UI ---
 st.markdown("""
@@ -24,7 +24,13 @@ st.markdown("""
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }
 
-    #MainMenu, footer, header {visibility: hidden;}
+    #MainMenu, footer {visibility: hidden;}
+
+    /* Keep Streamlit header visible so the built-in sidebar collapse/expand button never disappears. */
+    header[data-testid="stHeader"] {
+        visibility: visible !important;
+        background: transparent !important;
+    }
 
     /* Metrics Cards */
     div[data-testid="stMetric"] {
