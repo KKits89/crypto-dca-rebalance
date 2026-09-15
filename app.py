@@ -320,7 +320,8 @@ if not raw_df_initial.empty:
                 'cost_basis': 0.0,
                 'realized_pnl': 0.0,
                 'gross_buy_cost': 0.0,
-                'realized_cost_basis': 0.0
+                'realized_cost_basis': 0.0,
+                'realized_proceeds': 0.0
             }
 
         st_asset = asset_states[ast]
@@ -365,6 +366,7 @@ if not raw_df_initial.empty:
 
             st_asset['realized_pnl'] += proceeds - cost_removed
             st_asset['realized_cost_basis'] += cost_removed
+            st_asset['realized_proceeds'] += proceeds
             st_asset['holdings'] = max(0.0, st_asset['holdings'] - qty_removed)
             st_asset['cost_basis'] = max(0.0, st_asset['cost_basis'] - cost_removed)
 
@@ -397,6 +399,7 @@ action_mode = st.sidebar.radio(
     ["Standard Trade", "External Loss / Write-off"],
     horizontal=False
 )
+st.sidebar.caption("SELL = negative Amount + negative USD_Cost. Write-off = negative Amount + USD_Cost $0.00.")
 
 if "Standard" in action_mode:
     tx_type = st.sidebar.radio("Direction:", ["BUY", "SELL"], horizontal=True)
@@ -503,6 +506,9 @@ for ast, state in asset_states.items():
         'total_cost': cst,
         'amount': amt,
         'realized_pnl': state['realized_pnl'],
+        'realized_cost_basis': state.get('realized_cost_basis', 0.0),
+        'realized_proceeds': state.get('realized_proceeds', 0.0),
+        'gross_buy_cost': state.get('gross_buy_cost', 0.0),
         'is_dca': ast in active_dca_assets,
         'cmc_slug': default_slugs.get(ast, ast.lower())
     }
@@ -647,6 +653,12 @@ for asset, data in portfolio_data.items():
     pnl_unrealized_usd = val - cst
     pnl_unrealized_pct = (pnl_unrealized_usd / cst) * 100 if cst > 0 else 0.0
 
+    realized_cost_basis = data.get("realized_cost_basis", 0.0)
+    realized_return_pct = (
+        (data["realized_pnl"] / realized_cost_basis) * 100
+        if realized_cost_basis > 0 else 0.0
+    )
+
     temp_stats = {
         "price": price, 
         "avg_price": avg_price, 
@@ -654,6 +666,9 @@ for asset, data in portfolio_data.items():
         "pnl_usd": pnl_unrealized_usd,          # Unrealized PnL
         "pnl_pct": pnl_unrealized_pct,          # Unrealized PnL %
         "realized_pnl": data["realized_pnl"],   # Realized PnL
+        "realized_cost_basis": realized_cost_basis,
+        "realized_proceeds": data.get("realized_proceeds", 0.0),
+        "realized_return_pct": realized_return_pct,
         "sma_50": sma_50,
         "bb_lower": bb_lower, 
         "rsi": rsi
@@ -720,7 +735,11 @@ with tab1:
         f"Unrealized: ${total_unrealized_pnl:+,.2f} | Realized: ${total_realized_pnl:+,.2f}"
     )
     c3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
-    st.caption("Accounting: SELL realizes PnL; BUY creates a new cost basis. Selling SOL and later buying BTC keeps SOL realized PnL separate from BTC unrealized PnL.")
+    st.caption(
+        "Accounting: SELL realizes PnL; BUY creates a new cost basis. "
+        "Selling SOL and later buying BTC keeps SOL realized PnL separate from BTC unrealized PnL. "
+        "Realized Return % = cumulative realized PnL ÷ cost basis assigned to the coins sold."
+    )
 
     st.markdown("---")
     st.markdown("##### Active Positions & Allocation Matrix")
@@ -744,7 +763,14 @@ with tab1:
             new_avg_str = f"${stats['avg_price']:.2f}"
 
         unrealized_str = f"{stats['pnl_usd']:+.2f}$ ({stats['pnl_pct']:+.2f}%)"
-        realized_str = f"{stats['realized_pnl']:+.2f}$"
+        realized_str = f"{stats['realized_pnl']:+.2f}$ ({stats['realized_return_pct']:+.2f}%)" if stats["realized_cost_basis"] > 0 else f"{stats['realized_pnl']:+.2f}$"
+        lifetime_return_pct = (
+            (stats['pnl_usd'] + stats['realized_pnl']) / data.get('gross_buy_cost', 0.0) * 100
+            if data.get('gross_buy_cost', 0.0) > 0 else 0.0
+        )
+        lifetime_return_str = (
+            f"{lifetime_return_pct:+.2f}%" if data.get('gross_buy_cost', 0.0) > 0 else "—"
+        )
         slug = data.get("cmc_slug", asset.lower())
         cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
 
@@ -759,6 +785,7 @@ with tab1:
             "RSI (14)": f"{stats['rsi']:.1f}",
             "Unrealized PnL": unrealized_str,
             "Realized PnL": realized_str,
+            "Lifetime Return": lifetime_return_str,
             "Strict Buy": strict_str,
             "Smart Buy": smart_str
         })
@@ -768,8 +795,20 @@ with tab1:
         df_metrics = df_metrics.sort_values(by="Invested_Numeric", ascending=False).drop(columns=["Invested_Numeric"])
         df_metrics.index = range(1, len(df_metrics) + 1)
     
+    def _pnl_style(value):
+        text = str(value).strip()
+        if text.startswith('+'):
+            return 'color: #22c55e; font-weight: 600'
+        if text.startswith('-'):
+            return 'color: #ef4444; font-weight: 600'
+        return ''
+
+    styled_metrics = df_metrics.style.map(
+        _pnl_style, subset=["Unrealized PnL", "Realized PnL", "Lifetime Return"]
+    )
+
     st.dataframe(
-        df_metrics,
+        styled_metrics,
         width='stretch',
         column_config={
             "Coin": st.column_config.LinkColumn("Coin Link", display_text=r"https://coinmarketcap.com/currencies/(.*?)/"),
@@ -975,4 +1014,3 @@ with tab5:
             tp_pct = st.slider(f"TP % {asset}", 5.0, 300.0, 50.0, step=5.0, key=f"tp_{asset}", label_visibility="collapsed")
             tp_price = base_price * (1 + tp_pct / 100.0)
             st.markdown(f"TP: `${tp_price:,.2f}` (+{tp_pct}%)")
-
