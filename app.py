@@ -731,8 +731,8 @@ with tab1:
     c1.metric("Total Portfolio Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
     c2.metric(
         "Net PnL (Unrealized + Realized)", 
-        f"${total_net_pnl_usd:+,.2f}", 
-        f"Unrealized: ${total_unrealized_pnl:+,.2f} | Realized: ${total_realized_pnl:+,.2f}"
+        f"${total_net_pnl_usd:+,.2f} (€{pnl_eur:+,.2f})", 
+        f"Unrealized: {total_unrealized_pnl:+,.2f} | Realized: {total_realized_pnl:+,.2f}"
     )
     c3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
     st.caption(
