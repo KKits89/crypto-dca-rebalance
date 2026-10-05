@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 import requests
+import json
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 import gspread
@@ -203,24 +204,40 @@ def load_transactions_from_sheet():
         return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
 
 @st.cache_data(ttl=60)
-def get_cmc_prices(symbols_list):
+def get_cmc_market_data(symbols_list):
+    """Resolve symbols directly through CoinMarketCap and return price + slug.
+    No manual slug is required for newly added coins as long as CMC resolves
+    the ticker unambiguously.
+    """
     if not symbols_list:
-        return {}
+        return {}, {}
     api_key = st.secrets.get("CMC_API_KEY", "")
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
     try:
         response = requests.get(
-            url, 
-            headers={"Accepts": "application/json", "X-CMC_PRO_API_KEY": api_key}, 
+            url,
+            headers={"Accepts": "application/json", "X-CMC_PRO_API_KEY": api_key},
             params={"symbol": ",".join(symbols_list), "convert": "USD"},
             timeout=5
         )
         if response.status_code == 200:
             data = response.json().get("data", {})
-            return {sym: data[sym]["quote"]["USD"]["price"] for sym in symbols_list if sym in data}
+            prices = {}
+            slugs = {}
+            for sym in symbols_list:
+                item = data.get(sym)
+                if item and item.get("quote", {}).get("USD", {}).get("price") is not None:
+                    prices[sym] = float(item["quote"]["USD"]["price"])
+                    if item.get("slug"):
+                        slugs[sym] = item["slug"]
+            return prices, slugs
     except Exception:
         pass
-    return {}
+    return {}, {}
+
+def get_cmc_prices(symbols_list):
+    prices, _ = get_cmc_market_data(symbols_list)
+    return prices
 
 @st.cache_data(ttl=300)
 def get_fear_and_greed():
@@ -230,6 +247,20 @@ def get_fear_and_greed():
         return int(data["data"][0]["value"]), data["data"][0]["value_classification"]
     except Exception:
         return 50, "Neutral"
+
+@st.cache_data(ttl=3600)
+def fetch_asset_history(asset, start_date, end_date):
+    """Cached daily history used by the historical portfolio-value timeline."""
+    ticker_str = "HYPE32196-USD" if asset == "HYPE" else f"{asset}-USD"
+    try:
+        hist = yf.Ticker(ticker_str).history(start=start_date, end=end_date)
+        if hist.empty and asset == "HYPE":
+            hist = yf.Ticker("HYPE-USD").history(start=start_date, end=end_date)
+        if hist.empty:
+            hist = yf.Ticker(f"{asset}-USD").history(start=start_date, end=end_date)
+        return hist
+    except Exception:
+        return pd.DataFrame()
 
 @st.cache_data(ttl=300)
 def fetch_asset_technicals(asset):
@@ -251,6 +282,66 @@ def get_eur_rate():
     except Exception:
         return 0.92
 
+# --- PERSISTENT TARGET WEIGHT SETTINGS ---
+def get_settings_sheet():
+    """Open/create a separate Settings worksheet so the transaction ledger stays untouched."""
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    spreadsheet = client.open("CryptoPortfolio")
+    try:
+        return spreadsheet.worksheet("Settings")
+    except gspread.WorksheetNotFound:
+        ws = spreadsheet.add_worksheet(title="Settings", rows=20, cols=3)
+        ws.update("A1:C1", [["Setting", "Value", "Updated"]])
+        return ws
+
+@st.cache_data(ttl=30)
+def load_target_settings():
+    """Load saved target-weight mode and custom weights."""
+    try:
+        ws = get_settings_sheet()
+        rows = ws.get_all_records()
+        settings = {str(r.get("Setting", "")).strip(): str(r.get("Value", "")).strip() for r in rows}
+        mode = settings.get("target_weight_mode", "automatic").lower()
+        if mode not in {"automatic", "custom"}:
+            mode = "automatic"
+        weights = {}
+        raw_weights = settings.get("target_weights", "")
+        if raw_weights:
+            try:
+                parsed = json.loads(raw_weights)
+                if isinstance(parsed, dict):
+                    weights = {str(k).upper(): float(v) for k, v in parsed.items() if float(v) >= 0}
+            except Exception:
+                weights = {}
+        return mode, weights
+    except Exception:
+        return "automatic", {}
+
+def save_target_settings(mode, weights):
+    """Persist Target Weight mode/values without touching the transaction ledger."""
+    ws = get_settings_sheet()
+    values = {
+        "target_weight_mode": mode,
+        "target_weights": json.dumps({k: round(float(v), 2) for k, v in weights.items()}, separators=(",", ":"))
+    }
+    rows = ws.get_all_records()
+    existing = {}
+    for idx, row in enumerate(rows, start=2):
+        key = str(row.get("Setting", "")).strip()
+        if key:
+            existing[key] = idx
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for key, value in values.items():
+        row_values = [key, value, now]
+        if key in existing:
+            ws.update(f"A{existing[key]}:C{existing[key]}", [row_values])
+        else:
+            ws.append_row(row_values)
+    load_target_settings.clear()
+
 # --- LOAD RAW DATA ---
 raw_df_initial = load_transactions_from_sheet()
 
@@ -263,8 +354,9 @@ def get_latest_transaction_date(df):
                     return str(valid_dates.max())
     return "N/A"
 
+# Known exceptions only. Normal coins are resolved automatically from CMC.
 default_slugs = {
-    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", 
+    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana",
     "ZEC": "zcash", "HYPE": "hyperliquid", "PUMP": "pump-fun"
 }
 
@@ -489,18 +581,18 @@ if not raw_df_initial.empty:
         except Exception as e:
             st.sidebar.error(f"Error: {e}")
 
-# --- TARGET ALLOCATION SETUP (HYBRID INPUT UI) ---
+# --- TARGET ALLOCATION SETUP ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Target Weights Setup")
 
 default_dca_selection = [ast for ast in unique_assets_in_sheet if ast != "PUMP"]
 active_dca_assets = st.sidebar.multiselect(
-    "Active DCA Assets:", 
-    options=unique_assets_in_sheet, 
+    "Active DCA Assets:",
+    options=unique_assets_in_sheet,
     default=default_dca_selection
 )
 
-cmc_prices = get_cmc_prices(unique_assets_in_sheet)
+cmc_prices, cmc_resolved_slugs = get_cmc_market_data(unique_assets_in_sheet)
 
 portfolio_data = {}
 temp_portfolio_vals = {}
@@ -516,7 +608,8 @@ for ast, state in asset_states.items():
         'realized_proceeds': state.get('realized_proceeds', 0.0),
         'gross_buy_cost': state.get('gross_buy_cost', 0.0),
         'is_dca': ast in active_dca_assets,
-        'cmc_slug': default_slugs.get(ast, ast.lower())
+        # CMC supplies the real slug automatically. Known exceptions remain as fallback.
+        'cmc_slug': cmc_resolved_slugs.get(ast, default_slugs.get(ast, ast.lower()))
     }
     if amt > 1e-4:
         p = cmc_prices.get(ast, cst / amt if amt > 0 else 0)
@@ -524,39 +617,91 @@ for ast, state in asset_states.items():
 
 tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_assets)
 
+def persist_custom_weights_from_session():
+    """Auto-save the currently edited custom weights so a refresh cannot reset them."""
+    weights = {
+        asset: float(st.session_state.get(f"num_{asset}", 0.0))
+        for asset in active_dca_assets
+        if f"num_{asset}" in st.session_state
+    }
+    try:
+        save_target_settings("custom", weights)
+    except Exception:
+        # The UI should still work if Sheets is temporarily unavailable.
+        pass
+
 def sync_from_num(asset_name):
     st.session_state[f"slider_{asset_name}"] = st.session_state[f"num_{asset_name}"]
+    if st.session_state.get("_target_mode_seen") == "custom":
+        persist_custom_weights_from_session()
 
 def sync_from_slider(asset_name):
     st.session_state[f"num_{asset_name}"] = st.session_state[f"slider_{asset_name}"]
+    if st.session_state.get("_target_mode_seen") == "custom":
+        persist_custom_weights_from_session()
 
 def adjust_weight(asset_name, delta):
     curr = st.session_state.get(f"num_{asset_name}", 0.0)
     new_val = max(0.0, min(100.0, round(curr + delta, 1)))
     st.session_state[f"num_{asset_name}"] = new_val
     st.session_state[f"slider_{asset_name}"] = new_val
+    if st.session_state.get("_target_mode_seen") == "custom":
+        persist_custom_weights_from_session()
+
+# Automatic = today's portfolio-derived allocation.
+# Custom = user-defined allocation persisted in the separate Settings sheet.
+saved_weight_mode, saved_custom_weights = load_target_settings()
+
+mode_options = ["Automatic (Current Portfolio)", "Custom (Saved)"]
+mode_default = 1 if saved_weight_mode == "custom" else 0
+selected_weight_mode = st.sidebar.radio(
+    "Target Weight Mode:",
+    mode_options,
+    index=mode_default,
+    key="target_weight_mode_ui"
+)
+current_mode = "custom" if selected_weight_mode.startswith("Custom") else "automatic"
+
+if current_mode != saved_weight_mode:
+    # Persist mode change immediately. Custom values are kept even when Automatic is selected,
+    # so switching back to Custom restores the last saved plan.
+    try:
+        save_target_settings(current_mode, saved_custom_weights)
+        saved_weight_mode = current_mode
+    except Exception as e:
+        st.sidebar.warning(f"Could not save Target Weight mode: {e}")
 
 target_weights = {}
 
 for asset in active_dca_assets:
     val = temp_portfolio_vals.get(asset, 0.0)
     auto_pct = (val / tot_dca_val_temp * 100.0) if tot_dca_val_temp > 0 else (100.0 / len(active_dca_assets) if active_dca_assets else 0.0)
-    
+
     num_key = f"num_{asset}"
     slider_key = f"slider_{asset}"
-    
-    if num_key not in st.session_state:
-        st.session_state[num_key] = float(round(auto_pct, 1))
-    if slider_key not in st.session_state:
+
+    if current_mode == "custom":
+        initial_pct = saved_custom_weights.get(asset, auto_pct)
+    else:
+        initial_pct = auto_pct
+
+    # Automatic mode always reflects today's holdings. Custom mode initializes once
+    # from the saved setting and then lets the controls own the value.
+    if current_mode == "automatic":
+        st.session_state[num_key] = float(round(initial_pct, 1))
         st.session_state[slider_key] = st.session_state[num_key]
+    else:
+        if num_key not in st.session_state or st.session_state.get("_target_mode_seen") != "custom":
+            st.session_state[num_key] = float(round(initial_pct, 1))
+            st.session_state[slider_key] = st.session_state[num_key]
 
     st.sidebar.markdown(f"<div style='font-size: 0.8rem; font-weight: 600; color: #e4e4e7; margin-top: 10px;'>{asset} TARGET WEIGHT</div>", unsafe_allow_html=True)
-    
+
     col_minus, col_box, col_plus = st.sidebar.columns([1, 2.4, 1])
-    
+
     with col_minus:
-        st.button("-", key=f"btn_dec_{asset}", on_click=adjust_weight, args=(asset, -1.0), use_container_width=True)
-        
+        st.button("-", key=f"btn_dec_{asset}", on_click=adjust_weight, args=(asset, -1.0), use_container_width=True, disabled=(current_mode == "automatic"))
+
     with col_box:
         st.number_input(
             label=f"{asset}_num",
@@ -566,11 +711,12 @@ for asset in active_dca_assets:
             key=num_key,
             on_change=sync_from_num,
             args=(asset,),
+            disabled=(current_mode == "automatic"),
             label_visibility="collapsed"
         )
-        
+
     with col_plus:
-        st.button("+", key=f"btn_inc_{asset}", on_click=adjust_weight, args=(asset, 1.0), use_container_width=True)
+        st.button("+", key=f"btn_inc_{asset}", on_click=adjust_weight, args=(asset, 1.0), use_container_width=True, disabled=(current_mode == "automatic"))
 
     st.sidebar.slider(
         label=f"{asset}_slider",
@@ -579,10 +725,19 @@ for asset in active_dca_assets:
         key=slider_key,
         on_change=sync_from_slider,
         args=(asset,),
+        disabled=(current_mode == "automatic"),
         label_visibility="collapsed"
     )
 
     target_weights[asset] = st.session_state[num_key]
+
+# Keep the current mode marker after controls have initialized.
+st.session_state["_target_mode_seen"] = current_mode
+
+if current_mode == "custom":
+    st.sidebar.caption("Custom weights are saved automatically in the separate Google Sheets Settings tab.")
+else:
+    st.sidebar.caption("Automatic weights are recalculated from today's portfolio values.")
 
 for asset in portfolio_data:
     portfolio_data[asset]['target_pct'] = (target_weights.get(asset, 0.0) / 100.0) if asset in active_dca_assets else 0.0
@@ -592,7 +747,7 @@ if active_dca_assets and abs(total_weight_sum - 100.0) > 0.01:
     st.sidebar.markdown(
         f"<div style='font-size: 0.78rem; background: #1c1917; color: #f59e0b; padding: 6px 10px; border-radius: 4px; border: 1px solid #78350f; margin-top: 8px; font-family: \"JetBrains Mono\", monospace;'>"
         f"TOTAL WEIGHT: <b>{total_weight_sum:.1f}%</b> (Target: 100.0%)"
-        f"</div>", 
+        f"</div>",
         unsafe_allow_html=True
     )
 
@@ -832,6 +987,8 @@ with tab2:
             
             if date_col and cost_col:
                 raw_tx_df = raw_df_initial.copy()
+                asset_col = next((c for c in raw_tx_df.columns if 'asset' in c.lower()), None)
+                amount_col = next((c for c in raw_tx_df.columns if 'amount' in c.lower()), None)
                 raw_tx_df[date_col] = pd.to_datetime(raw_tx_df[date_col], errors='coerce')
                 raw_tx_df = raw_tx_df.dropna(subset=[date_col])
                 
@@ -842,9 +999,45 @@ with tab2:
                 timeline_df = pd.merge(pd.DataFrame({date_col: full_calendar}), daily_costs[[date_col, 'Cumulative_Cost']], on=date_col, how='left')
                 timeline_df['Cumulative_Cost'] = timeline_df['Cumulative_Cost'].ffill().fillna(0)
                 
-                days_count = len(timeline_df)
-                cost_start = timeline_df['Cumulative_Cost'].iloc[0] if days_count > 0 else 1
-                timeline_df['Portfolio_Value'] = np.linspace(cost_start, total_current_portfolio, days_count)
+                # Build a real historical portfolio value instead of interpolating
+                # a straight line between the first and current values.
+                timeline_df['Portfolio_Value'] = 0.0
+                timeline_dates = timeline_df[date_col].dt.normalize()
+                asset_list = sorted(set(str(a).upper().strip() for a in raw_tx_df[asset_col].dropna()))
+
+                # Replay the ledger day by day to get holdings as they actually existed.
+                tx_work = raw_tx_df[[date_col, asset_col, amount_col]].copy()
+                tx_work[asset_col] = tx_work[asset_col].astype(str).str.upper().str.strip()
+                tx_work[amount_col] = pd.to_numeric(tx_work[amount_col], errors='coerce').fillna(0.0)
+                tx_work['_day'] = tx_work[date_col].dt.normalize()
+                daily_changes = tx_work.groupby(['_day', asset_col])[amount_col].sum().unstack(fill_value=0.0)
+                daily_changes = daily_changes.reindex(timeline_dates, fill_value=0.0).fillna(0.0)
+                historical_holdings = daily_changes.cumsum()
+
+                start_date = timeline_dates.min()
+                end_date = timeline_dates.max() + pd.Timedelta(days=1)
+
+                for asset in asset_list:
+                    if asset not in historical_holdings.columns:
+                        continue
+                    ticker_str = "HYPE32196-USD" if asset == "HYPE" else f"{asset}-USD"
+                    try:
+                        hist = fetch_asset_history(
+                            asset,
+                            start_date.strftime("%Y-%m-%d"),
+                            end_date.strftime("%Y-%m-%d")
+                        )
+                        if hist.empty:
+                            continue
+                        hist.index = pd.to_datetime(hist.index).tz_localize(None).normalize()
+                        prices = hist['Close'].groupby(hist.index).last()
+                        prices = prices.reindex(timeline_dates).ffill().bfill()
+                        holdings = historical_holdings[asset].clip(lower=0.0)
+                        timeline_df['Portfolio_Value'] += holdings.to_numpy() * prices.to_numpy()
+                    except Exception:
+                        # If an asset has no Yahoo Finance history, keep the other assets
+                        # in the real timeline rather than fabricating a straight line.
+                        continue
 
                 fig_timeline = go.Figure()
                 fig_timeline.add_trace(go.Scatter(x=timeline_df[date_col], y=timeline_df['Cumulative_Cost'], mode='lines', name='Active Net Cost ($)', line=dict(color='#71717a', width=1.5)))
