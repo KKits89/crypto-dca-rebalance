@@ -794,18 +794,31 @@ for asset, data in portfolio_data.items():
         continue 
         
     price = cmc_prices.get(asset, cst / amt if amt > 0 else 0)
+    # Keep the existing Smart Buy defaults/logic unchanged; the dashboard uses
+    # separate availability flags so missing technical history is not presented as real data.
     rsi, sma_50, bb_lower = 50.0, price, price * 0.95
-    
+    bb_mid, bb_upper = None, None
+    momentum_24h, momentum_7d = None, None
+    has_sma_50 = False
+    has_bollinger = False
     hist = fetch_asset_technicals(asset)
-    if not hist.empty:
-        if len(hist) >= 50:
-            sma_50 = hist['Close'].tail(50).mean()
-        if len(hist) >= 20:
-            rm = hist['Close'].rolling(window=20).mean().iloc[-1]
-            rsd = hist['Close'].rolling(window=20).std().iloc[-1]
-            bb_lower = rm - (2 * rsd)
-        if len(hist) >= 15:
-            rsi_series = get_rsi(hist['Close'])
+    if not hist.empty and 'Close' in hist.columns:
+        closes = pd.to_numeric(hist['Close'], errors='coerce').dropna()
+        if len(closes) >= 50:
+            sma_50 = float(closes.tail(50).mean())
+            has_sma_50 = True
+        if len(closes) >= 20:
+            bb_mid = float(closes.rolling(window=20).mean().iloc[-1])
+            rsd = float(closes.rolling(window=20).std().iloc[-1])
+            bb_lower = bb_mid - (2 * rsd)
+            bb_upper = bb_mid + (2 * rsd)
+            has_bollinger = True
+        if len(closes) >= 2 and closes.iloc[-2] != 0:
+            momentum_24h = (float(closes.iloc[-1]) / float(closes.iloc[-2]) - 1) * 100
+        if len(closes) >= 8 and closes.iloc[-8] != 0:
+            momentum_7d = (float(closes.iloc[-1]) / float(closes.iloc[-8]) - 1) * 100
+        if len(closes) >= 15:
+            rsi_series = get_rsi(closes)
             if not rsi_series.empty and not pd.isna(rsi_series.iloc[-1]):
                 rsi = float(rsi_series.iloc[-1])
 
@@ -831,7 +844,13 @@ for asset, data in portfolio_data.items():
         "realized_proceeds": data.get("realized_proceeds", 0.0),
         "realized_return_pct": realized_return_pct,
         "sma_50": sma_50,
-        "bb_lower": bb_lower, 
+        "has_sma_50": has_sma_50,
+        "bb_lower": bb_lower,
+        "bb_mid": bb_mid,
+        "bb_upper": bb_upper,
+        "has_bollinger": has_bollinger,
+        "momentum_24h": momentum_24h,
+        "momentum_7d": momentum_7d,
         "rsi": rsi
     }
     temp_stats["score"] = compute_smart_score(temp_stats, fng_value)
@@ -976,6 +995,86 @@ with tab1:
             "Asset": None
         }
     )
+
+    # Separate technical dashboard: informational only and independent from
+    # Strict Buy / Smart Buy allocation calculations.
+    with st.expander("Technical Analysis — Trend & Momentum", expanded=False):
+        st.caption(
+            "Technical indicators are informational only. They do not change Strict Buy or Smart Buy. "
+            "Trend compares the current CMC price with the 50-day moving average; momentum is calculated from daily Yahoo Finance closes."
+        )
+        technical_rows = []
+        for asset, data in portfolio_data.items():
+            if data["amount"] <= 1e-4 or asset not in current_values:
+                continue
+            stats = current_values[asset]
+            price = stats["price"]
+            has_sma = stats.get("has_sma_50", False)
+            has_bb = stats.get("has_bollinger", False)
+            sma = stats.get("sma_50")
+            rsi_val = stats.get("rsi")
+            m24 = stats.get("momentum_24h")
+            m7 = stats.get("momentum_7d")
+
+            if has_sma and sma and sma > 0:
+                trend = "ABOVE SMA 50" if price >= sma else "BELOW SMA 50"
+                trend_numeric = 1 if price >= sma else -1
+            else:
+                trend = "N/A"
+                trend_numeric = 0
+
+            if has_bb:
+                if price <= stats["bb_lower"]:
+                    bb_status = "Near/below lower"
+                elif price >= stats["bb_upper"]:
+                    bb_status = "Near/above upper"
+                elif price < stats["bb_mid"]:
+                    bb_status = "Lower half"
+                else:
+                    bb_status = "Upper half"
+            else:
+                bb_status = "N/A"
+
+            # Simple transparent summary, not a trading instruction.
+            bullish_points = int(trend_numeric == 1) + int(m7 is not None and m7 > 0) + int(rsi_val >= 50)
+            bearish_points = int(trend_numeric == -1) + int(m7 is not None and m7 < 0) + int(rsi_val < 50)
+            if not has_sma and m7 is None:
+                signal = "INSUFFICIENT DATA"
+            elif bullish_points >= bearish_points + 2:
+                signal = "BULLISH"
+            elif bearish_points >= bullish_points + 2:
+                signal = "BEARISH"
+            else:
+                signal = "NEUTRAL"
+
+            technical_rows.append({
+                "Coin": asset,
+                "RSI (14)": f"{rsi_val:.1f}" if rsi_val is not None else "N/A",
+                "SMA 50": f"${sma:,.4f}" if has_sma and sma is not None else "N/A",
+                "Trend": trend,
+                "Bollinger Bands": bb_status,
+                "24h Momentum": f"{m24:+.2f}%" if m24 is not None else "N/A",
+                "7d Momentum": f"{m7:+.2f}%" if m7 is not None else "N/A",
+                "Signal Summary": signal
+            })
+
+        if technical_rows:
+            technical_df = pd.DataFrame(technical_rows)
+            def _technical_style(value):
+                value = str(value)
+                if value in {"BULLISH", "ABOVE SMA 50"}:
+                    return "color: #22c55e; font-weight: 600"
+                if value in {"BEARISH", "BELOW SMA 50"}:
+                    return "color: #ef4444; font-weight: 600"
+                if value == "NEUTRAL":
+                    return "color: #f59e0b; font-weight: 600"
+                return ""
+            technical_styled = technical_df.style.map(
+                _technical_style, subset=["Trend", "Signal Summary"]
+            )
+            st.dataframe(technical_styled, width="stretch", hide_index=True)
+        else:
+            st.info("No active positions with available technical data.")
 
 # --- TAB 2: ANALYTICS ---
 with tab2:
