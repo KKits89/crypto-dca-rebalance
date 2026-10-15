@@ -901,8 +901,8 @@ for asset, data in portfolio_data.items():
 total_smart_weight = total_smart_weight or 1.0
 
 # --- MAIN NAVIGATION TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Overview", "Analytics", "Ledgers & Export", "Smart Advisor", "Risk & Exit Laddering"
+tab1, tab2, tab6, tab3, tab4, tab5 = st.tabs([
+    "Overview", "Analytics", "Profit & Rebalance", "Ledgers & Export", "Smart Advisor", "Risk & Exit Laddering"
 ])
 
 # --- TAB 1: OVERVIEW ---
@@ -1161,6 +1161,148 @@ with tab2:
             fig_bar = go.Figure(data=[go.Bar(x=assets_list, y=net_pnls, marker_color=colors)])
             fig_bar.update_layout(title="Total Net PnL (Unrealized + Realized) ($)", paper_bgcolor="#09090b", plot_bgcolor="#121215", font_color="#f4f4f5", xaxis=dict(gridcolor='#27272a'), yaxis=dict(gridcolor='#27272a'))
             st.plotly_chart(fig_bar, width='stretch')
+
+# --- TAB 6: PROFIT TAKING & REBALANCING ---
+with tab6:
+    st.markdown("### Profit Taking & Rebalance")
+    st.caption("Ξεχωριστό εργαλείο για κατοχύρωση κερδών και επαναφορά των βαρών του portfolio. Δεν αλλάζει το Overview ή τα Strict/Smart Buy.")
+
+    active_tool_assets = [
+        a for a in current_values
+        if a in portfolio_data and portfolio_data[a]["amount"] > 1e-8 and current_values[a]["price"] > 0
+    ]
+
+    if not active_tool_assets:
+        st.info("Δεν υπάρχουν ενεργές θέσεις με διαθέσιμη τιμή για υπολογισμό.")
+    else:
+        coin_icons = {"BTC": "₿", "ETH": "◆", "SOL": "◎", "ZEC": "◈", "HYPE": "⬡", "BNB": "◆", "XRP": "✕", "ADA": "●", "DOGE": "Ð", "LTC": "Ł", "QNT": "◉"}
+        if st.session_state.get("profit_rebalance_asset") not in active_tool_assets:
+            st.session_state["profit_rebalance_asset"] = "ZEC" if "ZEC" in active_tool_assets else active_tool_assets[0]
+
+        st.markdown("#### Select coin")
+        # Compact, clearly highlighted coin buttons; selected coin uses Streamlit's primary style.
+        button_cols = st.columns(min(5, len(active_tool_assets)))
+        for i, asset in enumerate(active_tool_assets):
+            col = button_cols[i % len(button_cols)]
+            icon = coin_icons.get(asset, "●")
+            with col:
+                if st.button(
+                    f"{icon}  {asset}",
+                    key=f"profit_coin_{asset}",
+                    type="primary" if st.session_state["profit_rebalance_asset"] == asset else "secondary",
+                    use_container_width=True
+                ):
+                    st.session_state["profit_rebalance_asset"] = asset
+                    st.rerun()
+
+        selected_asset = st.session_state["profit_rebalance_asset"]
+        selected_data = portfolio_data[selected_asset]
+        selected_stats = current_values[selected_asset]
+        holdings = float(selected_data["amount"])
+        price_usd = float(selected_stats["price"])
+        avg_price_usd = float(selected_stats.get("avg_price", 0.0) or 0.0)
+        price_eur = price_usd * usd_to_eur
+        holding_value_usd = float(selected_stats["current_val"])
+        holding_value_eur = holding_value_usd * usd_to_eur
+        current_weight = (holding_value_usd / total_current_portfolio * 100.0) if total_current_portfolio > 0 else 0.0
+
+        st.markdown("---")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Selected coin", selected_asset)
+        metric_cols[1].metric("Holdings", f"{holdings:.8f}".rstrip("0").rstrip("."))
+        metric_cols[2].metric("Current value", f"€{holding_value_eur:,.2f}", f"${holding_value_usd:,.2f}")
+        metric_cols[3].metric("Portfolio weight", f"{current_weight:.2f}%")
+
+        tool_mode = st.radio(
+            "Choose action",
+            ["💰 Take Profit", "⚖️ Rebalance"],
+            horizontal=True,
+            key="profit_rebalance_mode"
+        )
+
+        if tool_mode == "💰 Take Profit":
+            st.markdown("#### Take profit calculator")
+            st.caption("Υπολόγισε είτε πόσο κέρδος θέλεις να κατοχυρώσεις είτε πόση αξία θέλεις να πουλήσεις.")
+            profit_mode = st.radio(
+                "Calculation type",
+                ["Target profit (€)", "Sell value (€)"],
+                horizontal=True,
+                key="profit_calc_mode"
+            )
+            target_eur = st.number_input(
+                "Target amount (€)", min_value=0.01, value=40.0, step=5.0,
+                key="profit_target_eur", help="Στο Target profit, είναι το εκτιμώμενο κέρδος. Στο Sell value, είναι η συνολική αξία πώλησης."
+            )
+
+            sell_qty = 0.0
+            calculation_ok = False
+            if profit_mode == "Target profit (€)":
+                profit_per_coin_eur = (price_usd - avg_price_usd) * usd_to_eur
+                if profit_per_coin_eur > 0 and holdings > 0:
+                    sell_qty = target_eur / profit_per_coin_eur
+                    calculation_ok = sell_qty <= holdings
+                    if calculation_ok:
+                        st.caption(f"Εκτιμώμενο κέρδος ανά {selected_asset}: €{profit_per_coin_eur:,.4f}, βάσει της μέσης τιμής κτήσης ${avg_price_usd:,.4f}.")
+                    else:
+                        st.warning(f"Για κέρδος €{target_eur:,.2f} θα χρειαζόταν να πουλήσεις περισσότερα από τα διαθέσιμα {selected_asset}.")
+                else:
+                    st.warning("Η τρέχουσα τιμή δεν είναι πάνω από τη μέση τιμή κτήσης, οπότε δεν μπορεί να υπολογιστεί θετικό κέρδος από πώληση.")
+            else:
+                sell_qty = target_eur / price_eur if price_eur > 0 else 0.0
+                calculation_ok = sell_qty <= holdings
+                if not calculation_ok:
+                    st.warning("Η αξία πώλησης που επέλεξες υπερβαίνει τη συνολική αξία της θέσης.")
+
+            if calculation_ok and sell_qty > 0:
+                sell_qty = min(sell_qty, holdings)
+                sell_usd = sell_qty * price_usd
+                sell_eur = sell_usd * usd_to_eur
+                sell_pct = sell_qty / holdings * 100.0 if holdings > 0 else 0.0
+                estimated_profit_eur = (price_usd - avg_price_usd) * sell_qty * usd_to_eur
+                remaining_qty = holdings - sell_qty
+                result_cols = st.columns(3)
+                result_cols[0].metric("Amount to sell", f"{sell_qty:.8f} {selected_asset}")
+                result_cols[1].metric("% of this holding", f"{sell_pct:.2f}%")
+                result_cols[2].metric("Sale value", f"€{sell_eur:,.2f}", f"${sell_usd:,.2f}")
+                st.success(f"Μετά την πώληση θα σου μείνουν {remaining_qty:.8f} {selected_asset}.")
+                if profit_mode == "Target profit (€)":
+                    st.caption(f"Εκτιμώμενο κέρδος: €{estimated_profit_eur:,.2f} πριν από fees/spread. Η πραγματική καθαρή είσπραξη μπορεί να διαφέρει.")
+                else:
+                    st.caption(f"Εκτιμώμενο PnL στο ποσό που πουλάς: €{estimated_profit_eur:+,.2f} πριν από fees/spread.")
+                st.info("Ο υπολογισμός είναι ενδεικτικός με βάση τη μέση τιμή κτήσης που εμφανίζει το portfolio. Δεν εκτελεί συναλλαγή.")
+
+        else:
+            st.markdown("#### Rebalance calculator")
+            st.caption("Αν ένα coin ξεφύγει πάνω από το βάρος-στόχο, υπολογίζουμε πόσο να πουλήσεις για να επιστρέψει στο επιθυμητό ποσοστό.")
+            configured_target_pct = float(selected_data.get("target_pct", 0.0) or 0.0) * 100.0
+            default_target_pct = configured_target_pct if configured_target_pct > 0 else min(100.0, round(current_weight, 2))
+            target_weight_pct = st.number_input(
+                "Target portfolio weight (%)", min_value=0.0, max_value=100.0,
+                value=float(default_target_pct), step=0.5, key=f"rebalance_target_{selected_asset}",
+                help="Αν το coin έχει target weight στο DCA setup, αυτό χρησιμοποιείται ως αρχική τιμή. Μπορείς να τον αλλάξεις εδώ χωρίς να αλλάξεις τις ρυθμίσεις DCA."
+            )
+            target_value_usd = total_current_portfolio * (target_weight_pct / 100.0)
+            excess_value_usd = holding_value_usd - target_value_usd
+            if total_current_portfolio <= 0:
+                st.warning("Δεν υπάρχει διαθέσιμη συνολική αξία portfolio για rebalance.")
+            elif excess_value_usd > 0 and price_usd > 0:
+                qty_to_sell = min(holdings, excess_value_usd / price_usd)
+                value_to_sell_usd = qty_to_sell * price_usd
+                value_to_sell_eur = value_to_sell_usd * usd_to_eur
+                pct_to_sell = qty_to_sell / holdings * 100.0 if holdings > 0 else 0.0
+                after_weight = ((holding_value_usd - value_to_sell_usd) / total_current_portfolio * 100.0)
+                rb_cols = st.columns(3)
+                rb_cols[0].metric("Amount to sell", f"{qty_to_sell:.8f} {selected_asset}")
+                rb_cols[1].metric("Sell from holding", f"{pct_to_sell:.2f}%")
+                rb_cols[2].metric("Estimated proceeds", f"€{value_to_sell_eur:,.2f}", f"${value_to_sell_usd:,.2f}")
+                st.success(f"Βάρος μετά την πώληση: περίπου {after_weight:.2f}% (στόχος {target_weight_pct:.2f}%).")
+                st.caption("Ο υπολογισμός κρατά σταθερή τη συνολική αξία του portfolio πριν από fees και μεταβολές τιμών. Δεν εκτελεί συναλλαγή.")
+            elif excess_value_usd < 0:
+                shortfall_usd = abs(excess_value_usd)
+                st.info(f"Το {selected_asset} είναι κάτω από τον στόχο. Για να φτάσει το {target_weight_pct:.2f}% χρειάζονται περίπου ${shortfall_usd:,.2f} (€{shortfall_usd * usd_to_eur:,.2f}) αγοράς, όχι πώληση.")
+            else:
+                st.success(f"Το {selected_asset} είναι ήδη στο βάρος-στόχο ({target_weight_pct:.2f}%). Δεν απαιτείται rebalance.")
+
 
 # --- TAB 3: LEDGERS & EXPORT ---
 with tab3:
