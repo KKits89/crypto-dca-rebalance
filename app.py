@@ -490,117 +490,106 @@ unique_assets_in_sheet = list(asset_states.keys())
 unique_assets_in_sheet = list(asset_states.keys())
 
 # --- SIDEBAR: EXECUTION & CONTROL ---
-st.sidebar.markdown("### Execution Panel")
-
+st.sidebar.markdown("### Execution")
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### Transaction Entry")
-
+st.sidebar.markdown("#### New Transaction")
 latest_date = get_latest_transaction_date(raw_df_initial)
-st.sidebar.caption(f"Last Transaction: {latest_date}")
+st.sidebar.caption(f"Last transaction · {latest_date}")
 
-action_mode = st.sidebar.radio(
-    "Entry Type:",
-    ["Standard Trade", "Swap / Convert", "External Loss / Write-off"],
-    horizontal=False
+action_mode = st.sidebar.selectbox(
+    "Action",
+    ["Trade", "Swap / Convert", "Write-off"],
+    label_visibility="collapsed"
 )
-st.sidebar.caption("SELL = negative Amount + negative USD_Cost. Swap records both sides and does not count the received coin as a fresh external buy. Write-off = negative Amount + USD_Cost $0.00.")
 
-if "Standard" in action_mode:
-    tx_type = st.sidebar.radio("Direction:", ["BUY", "SELL"], horizontal=True)
-    asset_input = st.sidebar.text_input("Asset Ticker", "BTC").upper().strip()
-    amount_input = st.sidebar.number_input("Amount", value=0.0, format="%.6f")
-    cost_input = st.sidebar.number_input("USD Total ($)", value=0.0, format="%.2f")
+if action_mode == "Trade":
+    tx_type = st.sidebar.radio("Direction", ["BUY", "SELL"], horizontal=True)
+    asset_input = st.sidebar.text_input("Asset", "BTC").upper().strip()
+    amount_input = st.sidebar.number_input("Quantity", value=0.0, format="%.8f")
+    cost_input = st.sidebar.number_input("Total value (USDC / USD)", value=0.0, format="%.2f")
 
-    if st.sidebar.button("Submit Trade"):
+    if st.sidebar.button("Log trade", type="primary", use_container_width=True):
         if amount_input > 0 and cost_input > 0 and asset_input:
             t_date = datetime.now().strftime("%Y-%m-%d")
-            
             if tx_type == "SELL":
                 current_amt = asset_states.get(asset_input, {}).get('holdings', 0.0)
                 if amount_input > current_amt + 1e-4:
-                    st.sidebar.error(f"Insufficient {asset_input} balance! Available: {current_amt:.6f}")
+                    st.sidebar.error(f"Insufficient {asset_input} balance · {current_amt:.8f} available")
                 else:
-                    final_amount = -amount_input
-                    final_cost = -cost_input
                     try:
                         sheet = get_g_sheet()
-                        sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
+                        sheet.append_row([t_date, asset_input, f"{-amount_input:.8f}", f"{-cost_input:.2f}"])
                         st.cache_data.clear()
-                        st.sidebar.success(f"SELL transaction logged for {asset_input}.")
+                        st.sidebar.success("Sale recorded")
                         st.rerun()
                     except Exception as e:
-                        st.sidebar.error(f"Execution Error: {e}")
-            else:  # BUY
-                final_amount = amount_input
-                final_cost = cost_input
+                        st.sidebar.error(f"Could not record trade: {e}")
+            else:
                 try:
                     sheet = get_g_sheet()
-                    sheet.append_row([t_date, asset_input, f"{final_amount:.8f}", f"{final_cost:.2f}"])
+                    sheet.append_row([t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}"])
                     st.cache_data.clear()
-                    st.sidebar.success("BUY transaction logged.")
+                    st.sidebar.success("Purchase recorded")
                     st.rerun()
                 except Exception as e:
-                    st.sidebar.error(f"Execution Error: {e}")
+                    st.sidebar.error(f"Could not record trade: {e}")
         else:
-            st.sidebar.error("Provide valid asset, amount, and cost.")
-elif "Swap" in action_mode:
-    st.sidebar.caption("Enter the coin you give and the coin you receive. Use the total USD-equivalent value of the swap; do not enter fees separately.")
-    swap_from_asset = st.sidebar.text_input("Coin Given", "RAY", key="swap_from_asset").upper().strip()
-    swap_from_amount = st.sidebar.number_input("Amount Given", value=0.0, format="%.8f", key="swap_from_amount")
-    swap_to_asset = st.sidebar.text_input("Coin Received", "LTC", key="swap_to_asset").upper().strip()
-    swap_to_amount = st.sidebar.number_input("Amount Received", value=0.0, format="%.8f", key="swap_to_amount")
-    swap_value = st.sidebar.number_input("Total Swap Value (USDC/USD equivalent)", value=0.0, format="%.2f", key="swap_value")
+            st.sidebar.error("Enter an asset, quantity and total value greater than zero.")
 
-    if st.sidebar.button("Log Swap / Convert"):
+elif action_mode == "Swap / Convert":
+    swap_from_asset = st.sidebar.text_input("You give · Asset", "RAY", key="swap_from_asset").upper().strip()
+    swap_from_amount = st.sidebar.number_input("You give · Quantity", value=0.0, format="%.8f", key="swap_from_amount")
+    swap_to_asset = st.sidebar.text_input("You receive · Asset", "LTC", key="swap_to_asset").upper().strip()
+    swap_to_amount = st.sidebar.number_input("You receive · Quantity", value=0.0, format="%.8f", key="swap_to_amount")
+    swap_value = st.sidebar.number_input("Swap value (USDC / USD)", value=0.0, format="%.2f", key="swap_value")
+
+    if st.sidebar.button("Log swap", type="primary", use_container_width=True):
         available_from = asset_states.get(swap_from_asset, {}).get('holdings', 0.0)
         if not swap_from_asset or not swap_to_asset or swap_from_asset == swap_to_asset:
-            st.sidebar.error("Choose two different valid asset tickers.")
+            st.sidebar.error("Choose two different asset tickers.")
         elif swap_from_amount <= 0 or swap_to_amount <= 0 or swap_value <= 0:
-            st.sidebar.error("Enter positive amounts and a positive total swap value.")
+            st.sidebar.error("Enter positive quantities and swap value.")
         elif swap_from_amount > available_from + 1e-8:
-            st.sidebar.error(f"Insufficient {swap_from_asset} balance! Available: {available_from:.8f}")
+            st.sidebar.error(f"Insufficient {swap_from_asset} balance · {available_from:.8f} available")
         else:
             t_date = datetime.now().strftime("%Y-%m-%d")
             try:
                 sheet = get_g_sheet()
-                # Add a fifth column for transaction type without altering existing rows.
                 headers = sheet.row_values(1)
-                if len(headers) < 5:
+                if len(headers) < 5 or not str(headers[4]).strip():
                     sheet.update_cell(1, 5, "Transaction Type")
-                elif not str(headers[4]).strip():
-                    sheet.update_cell(1, 5, "Transaction Type")
-                # Paired rows preserve the existing four-column ledger logic.
-                # SWAP_OUT realizes PnL on the disposed asset; SWAP_IN establishes
-                # the received asset's cost basis without inflating gross external buys.
                 sheet.append_rows([
                     [t_date, swap_from_asset, f"{-swap_from_amount:.8f}", f"{-swap_value:.2f}", "SWAP_OUT"],
                     [t_date, swap_to_asset, f"{swap_to_amount:.8f}", f"{swap_value:.2f}", "SWAP_IN"]
                 ], value_input_option="USER_ENTERED")
                 st.cache_data.clear()
-                st.sidebar.success(f"Swap logged: {swap_from_amount:.8f} {swap_from_asset} → {swap_to_amount:.8f} {swap_to_asset}.")
+                st.sidebar.success(f"Swap recorded · {swap_from_asset} → {swap_to_asset}")
                 st.rerun()
             except Exception as e:
-                st.sidebar.error(f"Swap Error: {e}")
-else:
-    burn_asset = st.sidebar.text_input("Asset Ticker", "BTC").upper().strip()
-    burn_amount = st.sidebar.number_input("Amount to Remove", value=0.0, format="%.6f")
+                st.sidebar.error(f"Could not record swap: {e}")
 
-    if st.sidebar.button("Log Write-off"):
+else:
+    burn_asset = st.sidebar.text_input("Asset to remove", "BTC").upper().strip()
+    burn_amount = st.sidebar.number_input("Quantity to remove", value=0.0, format="%.8f")
+
+    if st.sidebar.button("Log write-off", type="primary", use_container_width=True):
         current_amt = asset_states.get(burn_asset, {}).get('holdings', 0.0)
         if burn_amount > current_amt + 1e-4:
-            st.sidebar.error(f"Insufficient {burn_asset} balance! Available: {current_amt:.6f}")
+            st.sidebar.error(f"Insufficient {burn_asset} balance · {current_amt:.8f} available")
         elif burn_amount > 0 and burn_asset:
             t_date = datetime.now().strftime("%Y-%m-%d")
             try:
                 sheet = get_g_sheet()
                 sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", "0.00"])
                 st.cache_data.clear()
-                st.sidebar.success("Write-off logged.")
+                st.sidebar.success("Write-off recorded")
                 st.rerun()
             except Exception as e:
-                st.sidebar.error(f"Error: {e}")
+                st.sidebar.error(f"Could not record write-off: {e}")
+        else:
+            st.sidebar.error("Enter a quantity greater than zero.")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Ledger Management")
