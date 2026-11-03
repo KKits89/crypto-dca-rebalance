@@ -91,9 +91,9 @@ st.markdown("""
 
     /* Buttons: restrained slate palette with a calm teal primary action */
     .stButton > button, .stDownloadButton > button {
-        background: #1b2028 !important;
+        background: #171a1f !important;
         color: #e8edf3 !important;
-        border: 1px solid #343d49 !important;
+        border: 1px solid #2d333d !important;
         border-radius: 8px !important;
         font-weight: 600 !important;
         font-size: 0.86rem !important;
@@ -102,22 +102,22 @@ st.markdown("""
         transition: background-color 0.15s ease, border-color 0.15s ease !important;
     }
     .stButton > button:hover, .stDownloadButton > button:hover {
-        background: #28313d !important;
-        border-color: #526174 !important;
+        background: #20262e !important;
+        border-color: #475569 !important;
         color: #ffffff !important;
     }
     .stButton > button[kind="primary"], button[kind="primary"] {
-        background: #0f766e !important;
+        background: #243141 !important;
         color: #ffffff !important;
-        border: 1px solid #16877e !important;
+        border: 1px solid #3d5166 !important;
     }
     .stButton > button[kind="primary"]:hover, button[kind="primary"]:hover {
-        background: #0d9488 !important;
-        border-color: #2dd4bf !important;
+        background: #2d3e50 !important;
+        border-color: #58708a !important;
     }
     .stButton > button:focus:not(:active), .stDownloadButton > button:focus:not(:active) {
-        border-color: #2dd4bf !important;
-        box-shadow: 0 0 0 1px #2dd4bf33 !important;
+        border-color: #58708a !important;
+        box-shadow: 0 0 0 1px rgba(88,112,138,0.28) !important;
     }
 
     /* Sidebar Styling */
@@ -180,12 +180,12 @@ st.markdown("""
         letter-spacing: 0.01em !important;
     }
     .stNumberInput button {
-        background: #1b2028 !important;
+        background: #171a1f !important;
         color: #cbd5e1 !important;
         border-color: #343d49 !important;
     }
     .stNumberInput button:hover {
-        background: #28313d !important;
+        background: #20262e !important;
         color: #ffffff !important;
     }
 
@@ -197,30 +197,88 @@ st.markdown("""
         padding: 0 !important;
         line-height: 1 !important;
         background-color: #1b2028 !important;
-        border: 1px solid #343d49 !important;
+        border: 1px solid #2d333d !important;
         color: #cbd5e1 !important;
     }
     div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button:hover {
         color: #ffffff !important;
-        border-color: #526174 !important;
+        border-color: #475569 !important;
         background-color: #28313d !important;
     }
 
     /* Custom Sliders */
     div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
-        background-color: #2dd4bf !important;
-        border: 2px solid #99f6e4 !important;
-        box-shadow: 0 0 8px rgba(45,212,191,0.18);
+        background-color: #8fa6bd !important;
+        border: 2px solid #c7d2de !important;
+        box-shadow: none;
     }
     div.stSlider > div[data-baseweb="slider"] div > div > div {
         background-color: #3f3f46 !important;
     }
     
-    /* Multiselect Tags */
-    span[data-baseweb="tag"] {
-        background-color: #18181b !important;
-        color: #e4e4e7 !important;
-        border: 1px solid #27272a !important;
+    /* Multiselect tags - suppress Streamlit theme red completely */
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"],
+    div[data-testid="stMultiSelect"] span[data-baseweb="tag"],
+    div[data-testid="stMultiSelect"] div[data-baseweb="tag"] {
+        background-color: #171c22 !important;
+        background-image: none !important;
+        color: #dce5ee !important;
+        border: 1px solid #303945 !important;
+        border-radius: 7px !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"] *,
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"] svg {
+        color: #dce5ee !important;
+        fill: #dce5ee !important;
+        background-color: transparent !important;
+    }
+    div[data-testid="stMultiSelect"] [data-baseweb="tag"]:hover {
+        background-color: #202731 !important;
+        border-color: #465362 !important;
+    }
+    div[data-testid="stMultiSelect"] [data-baseweb="select"]:focus-within {
+        border-color: #465362 !important;
+        box-shadow: 0 0 0 1px rgba(70,83,98,0.22) !important;
+    }
+
+    /* Radio controls - dark outer ring + muted steel selected dot, never red */
+    div[data-testid="stRadio"] [role="radiogroup"] {
+        gap: 0.35rem !important;
+    }
+    div[data-testid="stRadio"] label[data-baseweb="radio"] {
+        color: #d7dee7 !important;
+        font-weight: 500 !important;
+    }
+    div[data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child {
+        background: #11151a !important;
+        border: 1px solid #4a5563 !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child > div {
+        background: transparent !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div:first-child {
+        background: #11151a !important;
+        border-color: #8fa6bd !important;
+        box-shadow: 0 0 0 2px rgba(143,166,189,0.10) !important;
+    }
+    div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div:first-child > div {
+        background: #8fa6bd !important;
+    }
+    div[data-testid="stRadio"] input[type="radio"] {
+        accent-color: #8fa6bd !important;
+    }
+    div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) {
+        color: #f5f7fa !important;
+    }
+
+    /* Sidebar section labels */
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] .stMarkdown p {
+        line-height: 1.35 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -688,11 +746,11 @@ if not raw_df_initial.empty:
 
 # --- TARGET ALLOCATION SETUP ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("### Target Weights Setup")
+st.sidebar.markdown("### Target Allocation")
 
 default_dca_selection = [ast for ast in unique_assets_in_sheet if ast != "PUMP"]
 active_dca_assets = st.sidebar.multiselect(
-    "Active DCA Assets:",
+    "Active Assets",
     options=unique_assets_in_sheet,
     default=default_dca_selection
 )
@@ -757,10 +815,10 @@ def adjust_weight(asset_name, delta):
 # Custom = user-defined allocation persisted in the separate Settings sheet.
 saved_weight_mode, saved_custom_weights = load_target_settings()
 
-mode_options = ["Automatic (Current Portfolio)", "Custom (Saved)"]
+mode_options = ["Automatic", "Custom"]
 mode_default = 1 if saved_weight_mode == "custom" else 0
 selected_weight_mode = st.sidebar.radio(
-    "Target Weight Mode:",
+    "Allocation Mode",
     mode_options,
     index=mode_default,
     key="target_weight_mode_ui"
@@ -832,20 +890,21 @@ for asset in active_dca_assets:
 # Keep the current mode marker after controls have initialized.
 st.session_state["_target_mode_seen"] = current_mode
 
-if current_mode == "custom":
-    st.sidebar.caption("Custom weights are saved automatically in the separate Google Sheets Settings tab.")
-else:
-    st.sidebar.caption("Automatic weights are recalculated from today's portfolio values.")
+# Keep the setup visually quiet: save/recalculation details are implementation notes,
+# not something the execution sidebar needs to explain on every screen.
 
 for asset in portfolio_data:
     portfolio_data[asset]['target_pct'] = (target_weights.get(asset, 0.0) / 100.0) if asset in active_dca_assets else 0.0
 
 total_weight_sum = sum(target_weights.values())
-if active_dca_assets and abs(total_weight_sum - 100.0) > 0.01:
+# Automatic weights can total 99.9/100.1 after display rounding; that is not a real warning.
+# Only show a quiet status in Custom mode when the user-defined weights materially miss 100%.
+if current_mode == "custom" and active_dca_assets and abs(total_weight_sum - 100.0) > 0.1:
     st.sidebar.markdown(
-        f"<div style='font-size: 0.78rem; background: #1c1917; color: #f59e0b; padding: 6px 10px; border-radius: 4px; border: 1px solid #78350f; margin-top: 8px; font-family: \"JetBrains Mono\", monospace;'>"
-        f"TOTAL WEIGHT: <b>{total_weight_sum:.1f}%</b> (Target: 100.0%)"
-        f"</div>",
+        f"<div style='font-size:0.76rem; color:#9ca3af; padding:7px 0 2px 0; "
+        f"border-top:1px solid #20242b; margin-top:10px;'>"
+        f"Total allocation <span style='color:#e5e7eb; font-weight:600;'>{total_weight_sum:.1f}%</span> "
+        f"<span style='color:#6b7280;'>· target 100%</span></div>",
         unsafe_allow_html=True
     )
 
@@ -1013,12 +1072,6 @@ with tab1:
         f"Unrealized: {total_unrealized_pnl:+,.2f} | Realized: {total_realized_pnl:+,.2f}"
     )
     c3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
-    st.caption(
-        "Accounting: SELL realizes PnL; BUY creates a new cost basis. "
-        "Selling SOL and later buying BTC keeps SOL realized PnL separate from BTC unrealized PnL. "
-        "Realized Return % = cumulative realized PnL ÷ cost basis assigned to the coins sold."
-    )
-
     st.markdown("---")
     st.markdown("##### Active Positions & Allocation Matrix")
 
