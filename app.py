@@ -372,15 +372,15 @@ def load_transactions_from_sheet():
         data_rows = sheet.get_all_records()
         
         if not data_rows:
-            sheet.append_row(["Date", "Asset", "Amount", "USD_Cost"])
-            return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
+            sheet.append_row(["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"])
+            return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"])
             
         df = pd.DataFrame(data_rows)
         df.columns = [str(col).strip().capitalize() for col in df.columns]
         if 'Usd_cost' in df.columns and 'USD_Cost' not in df.columns:
             df.rename(columns={'Usd_cost': 'USD_Cost'}, inplace=True)
             
-        for col in ['Amount', 'USD_Cost']:
+        for col in ['Amount', 'USD_Cost', 'USDC_Flow']:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
             elif col.lower() in df.columns:
@@ -389,7 +389,7 @@ def load_transactions_from_sheet():
         return df
     except Exception as e:
         st.error(f"Google Sheet Connection Error: {e}")
-        return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost"])
+        return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"])
 
 @st.cache_data(ttl=60)
 def get_cmc_market_data(symbols_list):
@@ -548,6 +548,19 @@ default_slugs = {
     "ZEC": "zcash", "HYPE": "hyperliquid", "PUMP": "pump-fun"
 }
 
+def ensure_transaction_ledger_headers(sheet):
+    """Ensure the transaction sheet has the metadata columns used by the app.
+
+    USDC_Flow is intentionally explicit. Historical rows remain blank/zero so the
+    app never invents a cash balance from old transactions whose funding path is unknown.
+    """
+    headers = sheet.row_values(1)
+    required = ["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"]
+    for idx, header in enumerate(required, start=1):
+        if len(headers) < idx or not str(headers[idx - 1]).strip():
+            sheet.update_cell(1, idx, header)
+    return required
+
 # --- CHRONOLOGICAL TRANSACTION PROCESSING ENGINE ---
 # Ledger convention:
 #   BUY       -> Amount > 0, USD_Cost > 0
@@ -564,6 +577,7 @@ default_slugs = {
 #   counting a conversion as fresh buying volume. It is not the same as external deposits.
 
 asset_states = {}
+cash_balance_usdc = 0.0
 
 if not raw_df_initial.empty:
     df_sorted = raw_df_initial.copy()
@@ -573,6 +587,7 @@ if not raw_df_initial.empty:
     c_amount = next((c for c in df_sorted.columns if 'amount' in c.lower()), 'Amount')
     c_cost = next((c for c in df_sorted.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
     c_tx_type = next((c for c in df_sorted.columns if 'transaction type' in c.lower() or c.lower() == 'type'), None)
+    c_usdc_flow = next((c for c in df_sorted.columns if 'usdc_flow' in c.lower() or 'usdc flow' in c.lower()), None)
 
     if c_date:
         try:
@@ -595,8 +610,14 @@ if not raw_df_initial.empty:
         try:
             amt = float(str(row.get(c_amount, 0.0)).replace(',', ''))
             cost_val = float(str(row.get(c_cost, 0.0)).replace(',', ''))
+            usdc_flow = float(str(row.get(c_usdc_flow, 0.0)).replace(',', '')) if c_usdc_flow else 0.0
         except (ValueError, TypeError):
             continue
+
+        # USDC_Flow is a separate cash ledger. Old rows have it blank/zero, so
+        # historical cash is never guessed. Positive = cash received, negative = spent.
+        if np.isfinite(usdc_flow):
+            cash_balance_usdc += usdc_flow
 
         if not np.isfinite(amt) or not np.isfinite(cost_val) or abs(amt) < 1e-12:
             continue
@@ -673,12 +694,17 @@ if not raw_df_initial.empty:
 if "_sheet_order" in df_sorted.columns if not raw_df_initial.empty else False:
     df_sorted = df_sorted.drop(columns=["_sheet_order"], errors="ignore")
 
-unique_assets_in_sheet = list(asset_states.keys())
+if abs(cash_balance_usdc) <= 1e-8:
+    cash_balance_usdc = 0.0
 
 unique_assets_in_sheet = list(asset_states.keys())
 
 # --- SIDEBAR: EXECUTION & CONTROL ---
 st.sidebar.markdown("### Execution")
+st.sidebar.markdown(
+    f"<div style='font-family:Inter,system-ui,sans-serif;color:#8f9aa8;font-size:.78rem;margin:-.15rem 0 .55rem 0;'>Tracked USDC&nbsp;&nbsp;<strong style='color:#e5e7eb;'>${cash_balance_usdc:,.2f}</strong></div>",
+    unsafe_allow_html=True,
+)
 new_cash_to_invest = st.sidebar.number_input("Cash to Invest ($)", value=0.0, step=10.0)
 
 st.sidebar.markdown("---")
@@ -688,7 +714,7 @@ st.sidebar.caption(f"Last transaction · {latest_date}")
 
 action_mode = st.sidebar.selectbox(
     "Action",
-    ["Trade", "Swap / Convert", "Write-off"],
+    ["Trade", "Swap / Convert", "USDC Balance", "Write-off"],
     label_visibility="collapsed"
 )
 
@@ -734,7 +760,7 @@ if action_mode == "Trade":
         fund_cols = st.sidebar.columns(2, gap="small")
         if fund_cols[0].button("New capital", key="funding_new", use_container_width=True):
             st.session_state["buy_funding_source"] = "New capital"
-        if fund_cols[1].button("Reinvest", key="funding_reinvest", use_container_width=True):
+        if fund_cols[1].button("USDC balance", key="funding_reinvest", use_container_width=True):
             st.session_state["buy_funding_source"] = "Reinvest"
         funding_source = st.session_state["buy_funding_source"]
         funding_selected = "funding_new" if funding_source == "New capital" else "funding_reinvest"
@@ -769,27 +795,36 @@ if action_mode == "Trade":
                 else:
                     try:
                         sheet = get_g_sheet()
-                        headers = sheet.row_values(1)
-                        if len(headers) < 5 or not str(headers[4]).strip():
-                            sheet.update_cell(1, 5, "Transaction Type")
-                        sheet.append_row([t_date, asset_input, f"{-amount_input:.8f}", f"{-cost_input:.2f}", "SELL"])
+                        ensure_transaction_ledger_headers(sheet)
+                        sheet.append_row([
+                            t_date, asset_input, f"{-amount_input:.8f}", f"{-cost_input:.2f}",
+                            "SELL", f"{cost_input:.2f}"
+                        ])
                         st.cache_data.clear()
                         st.sidebar.success("Sale recorded")
                         st.rerun()
                     except Exception as e:
                         st.sidebar.error(f"Could not record trade: {e}")
             else:
-                try:
-                    sheet = get_g_sheet()
-                    headers = sheet.row_values(1)
-                    if len(headers) < 5 or not str(headers[4]).strip():
-                        sheet.update_cell(1, 5, "Transaction Type")
-                    sheet.append_row([t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}", buy_funding_type])
-                    st.cache_data.clear()
-                    st.sidebar.success("Purchase recorded")
-                    st.rerun()
-                except Exception as e:
-                    st.sidebar.error(f"Could not record trade: {e}")
+                if buy_funding_type == "BUY_REINVESTED" and cost_input > cash_balance_usdc + 1e-6:
+                    st.sidebar.error(
+                        f"Insufficient tracked USDC · ${cash_balance_usdc:,.2f} available. "
+                        "Use USDC Balance to reconcile the tracker if needed."
+                    )
+                else:
+                    try:
+                        sheet = get_g_sheet()
+                        ensure_transaction_ledger_headers(sheet)
+                        usdc_flow = -cost_input if buy_funding_type == "BUY_REINVESTED" else 0.0
+                        sheet.append_row([
+                            t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}",
+                            buy_funding_type, f"{usdc_flow:.2f}"
+                        ])
+                        st.cache_data.clear()
+                        st.sidebar.success("Purchase recorded")
+                        st.rerun()
+                    except Exception as e:
+                        st.sidebar.error(f"Could not record trade: {e}")
         else:
             st.sidebar.error("Enter an asset, quantity and total value greater than zero.")
 
@@ -812,18 +847,48 @@ elif action_mode == "Swap / Convert":
             t_date = datetime.now().strftime("%Y-%m-%d")
             try:
                 sheet = get_g_sheet()
-                headers = sheet.row_values(1)
-                if len(headers) < 5 or not str(headers[4]).strip():
-                    sheet.update_cell(1, 5, "Transaction Type")
+                ensure_transaction_ledger_headers(sheet)
                 sheet.append_rows([
-                    [t_date, swap_from_asset, f"{-swap_from_amount:.8f}", f"{-swap_value:.2f}", "SWAP_OUT"],
-                    [t_date, swap_to_asset, f"{swap_to_amount:.8f}", f"{swap_value:.2f}", "SWAP_IN"]
+                    [t_date, swap_from_asset, f"{-swap_from_amount:.8f}", f"{-swap_value:.2f}", "SWAP_OUT", "0.00"],
+                    [t_date, swap_to_asset, f"{swap_to_amount:.8f}", f"{swap_value:.2f}", "SWAP_IN", "0.00"]
                 ], value_input_option="USER_ENTERED")
                 st.cache_data.clear()
                 st.sidebar.success(f"Swap recorded · {swap_from_asset} → {swap_to_asset}")
                 st.rerun()
             except Exception as e:
                 st.sidebar.error(f"Could not record swap: {e}")
+
+elif action_mode == "USDC Balance":
+    st.sidebar.caption("Reconcile only · does not change PnL or ROI")
+    desired_usdc_balance = st.sidebar.number_input(
+        "Current USDC balance",
+        min_value=0.0,
+        value=float(max(0.0, cash_balance_usdc)),
+        step=10.0,
+        format="%.2f",
+        key="desired_usdc_balance",
+    )
+    usdc_adjustment = desired_usdc_balance - cash_balance_usdc
+    st.sidebar.markdown(
+        f"<div style='font-family:Inter,system-ui,sans-serif;color:#8f9aa8;font-size:.78rem;margin:.1rem 0 .55rem 0;'>Adjustment&nbsp;&nbsp;<strong style='color:#e5e7eb;'>{usdc_adjustment:+,.2f} USDC</strong></div>",
+        unsafe_allow_html=True,
+    )
+    if st.sidebar.button("Reconcile USDC", use_container_width=True):
+        if abs(usdc_adjustment) <= 0.005:
+            st.sidebar.info("USDC balance already matches.")
+        else:
+            t_date = datetime.now().strftime("%Y-%m-%d")
+            try:
+                sheet = get_g_sheet()
+                ensure_transaction_ledger_headers(sheet)
+                sheet.append_row([
+                    t_date, "USDC", "0.00000000", "0.00", "CASH_RECONCILE", f"{usdc_adjustment:.2f}"
+                ])
+                st.cache_data.clear()
+                st.sidebar.success("USDC balance reconciled")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Could not reconcile USDC: {e}")
 
 else:
     burn_asset = st.sidebar.text_input("Asset to remove", "BTC").upper().strip()
@@ -837,10 +902,8 @@ else:
             t_date = datetime.now().strftime("%Y-%m-%d")
             try:
                 sheet = get_g_sheet()
-                headers = sheet.row_values(1)
-                if len(headers) < 5 or not str(headers[4]).strip():
-                    sheet.update_cell(1, 5, "Transaction Type")
-                sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", "0.00", "WRITE_OFF"])
+                ensure_transaction_ledger_headers(sheet)
+                sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", "0.00", "WRITE_OFF", "0.00"])
                 st.cache_data.clear()
                 st.sidebar.success("Write-off recorded")
                 st.rerun()
@@ -1229,8 +1292,9 @@ for asset, data in portfolio_data.items():
     total_current_portfolio += val
     total_active_cost += cst
 
+total_account_value = total_current_portfolio + cash_balance_usdc
 new_total_portfolio = total_current_portfolio + new_cash_to_invest
-tot_eur = total_current_portfolio * usd_to_eur
+tot_eur = total_account_value * usd_to_eur
 
 total_unrealized_pnl = total_current_portfolio - total_active_cost
 total_net_pnl_usd = total_unrealized_pnl + total_realized_pnl
@@ -1278,13 +1342,17 @@ tab1, tab2, tab6, tab3, tab4, tab5 = st.tabs([
 # --- TAB 1: OVERVIEW ---
 with tab1:
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Portfolio Value", f"${total_current_portfolio:,.2f}", f"€{tot_eur:,.2f}")
+    c1.metric("Total Portfolio Value", f"${total_account_value:,.2f}", f"€{tot_eur:,.2f}")
     c2.metric(
         "Net PnL (Unrealized + Realized)", 
         f"${total_net_pnl_usd:+,.2f} (€{pnl_eur:+,.2f})", 
         f"Unrealized: {total_unrealized_pnl:+,.2f} | Realized: {total_realized_pnl:+,.2f}"
     )
-    c3.metric("Allocatable Cash", f"${new_cash_to_invest:,.2f}")
+    c3.metric(
+        "Tracked USDC",
+        f"${cash_balance_usdc:,.2f}",
+        f"Planning cash: ${new_cash_to_invest:,.2f}"
+    )
     st.markdown("---")
     st.markdown("##### Active Positions & Allocation Matrix")
 
@@ -1359,6 +1427,52 @@ with tab1:
             "Asset": None
         }
     )
+
+    # Keep fully sold assets visible as closed positions instead of making them disappear.
+    closed_rows = []
+    for asset, data in portfolio_data.items():
+        if data.get("amount", 0.0) > 1e-4:
+            continue
+        gross_buy_cost = float(data.get("gross_buy_cost", 0.0) or 0.0)
+        realized_cost_basis = float(data.get("realized_cost_basis", 0.0) or 0.0)
+        realized_proceeds = float(data.get("realized_proceeds", 0.0) or 0.0)
+        realized_pnl = float(data.get("realized_pnl", 0.0) or 0.0)
+
+        # Ignore assets that never had a real position/history.
+        if gross_buy_cost <= 0 and realized_cost_basis <= 0 and realized_proceeds <= 0 and abs(realized_pnl) < 1e-12:
+            continue
+
+        lifetime_return_pct = (realized_pnl / gross_buy_cost * 100.0) if gross_buy_cost > 0 else 0.0
+        slug = data.get("cmc_slug", asset.lower())
+        cmc_url = f"https://coinmarketcap.com/currencies/{slug}/"
+
+        closed_rows.append({
+            "Coin": cmc_url,
+            "Asset": asset,
+            "Holdings": "0",
+            "Total Buy Cost": f"${gross_buy_cost:,.2f}" if gross_buy_cost > 0 else "—",
+            "Realized Proceeds": f"${realized_proceeds:,.2f}" if realized_proceeds > 0 else "—",
+            "Realized PnL": f"{realized_pnl:+.2f}$",
+            "Lifetime Return": f"{lifetime_return_pct:+.2f}%" if gross_buy_cost > 0 else "—",
+            "Status": "Closed",
+            "_sort": gross_buy_cost,
+        })
+
+    if closed_rows:
+        st.markdown("##### Closed Positions")
+        closed_df = pd.DataFrame(closed_rows).sort_values(by="_sort", ascending=False).drop(columns=["_sort"])
+        closed_df.index = range(1, len(closed_df) + 1)
+        styled_closed = closed_df.style.map(
+            _pnl_style, subset=["Realized PnL", "Lifetime Return"]
+        )
+        st.dataframe(
+            styled_closed,
+            width='stretch',
+            column_config={
+                "Coin": st.column_config.LinkColumn("Coin Link", display_text=r"https://coinmarketcap.com/currencies/(.*?)/"),
+                "Asset": None,
+            }
+        )
 
     # Separate technical dashboard: informational only and independent from
     # Strict Buy / Smart Buy allocation calculations.
