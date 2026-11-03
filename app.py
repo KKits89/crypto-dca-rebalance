@@ -816,15 +816,40 @@ st.sidebar.markdown("### Ledger Management")
 
 if not raw_df_initial.empty:
     last_row = raw_df_initial.iloc[-1]
+    last_date = str(last_row.get('Date', 'N/A'))
+    last_asset = str(last_row.get('Asset', 'N/A')).upper()
+    last_amount = str(last_row.get('Amount', 'N/A'))
+    last_cost = str(last_row.get('USD_Cost', 'N/A'))
+
     st.sidebar.markdown(
-        f"<div style='font-size: 11px; color: #a1a1aa; background: #121215; padding: 10px; border-radius: 6px; border: 1px solid #27272a; font-family: \"JetBrains Mono\", monospace;'>"
-        f"<b>LAST ROW:</b> {last_row.get('Date', 'N/A')} | {last_row.get('Asset', 'N/A')}<br>"
-        f"<b>AMT:</b> {last_row.get('Amount', 'N/A')} | <b>COST:</b> ${last_row.get('USD_Cost', 'N/A')}"
-        f"</div>", 
+        f"""
+        <div style="
+            background:#111318;
+            border:1px solid #252a33;
+            border-radius:10px;
+            padding:12px 13px;
+            margin:2px 0 8px 0;
+            font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color:#f4f4f5;
+        ">
+            <div style="font-size:11px; color:#8f98a8; margin-bottom:4px;">Last transaction</div>
+            <div style="font-size:14px; font-weight:600; margin-bottom:10px;">{last_date} · {last_asset}</div>
+            <div style="display:flex; justify-content:space-between; gap:14px;">
+                <div>
+                    <div style="font-size:10px; color:#7f8898; text-transform:uppercase; letter-spacing:.05em;">Amount</div>
+                    <div style="font-size:13px; font-weight:600; margin-top:2px;">{last_amount} {last_asset}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:10px; color:#7f8898; text-transform:uppercase; letter-spacing:.05em;">Value</div>
+                    <div style="font-size:13px; font-weight:600; margin-top:2px;">${last_cost}</div>
+                </div>
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True
     )
     
-    if st.sidebar.button("Undo Last Entry"):
+    if st.sidebar.button("Undo last entry", use_container_width=True):
         try:
             sheet = get_g_sheet()
             all_values = sheet.get_all_values()
