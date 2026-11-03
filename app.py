@@ -372,8 +372,8 @@ default_slugs = {
 #   the realized PnL of SOL.
 # - Unrealized PnL is calculated only on currently held coins.
 # - Net PnL = realized PnL + unrealized PnL.
-# - Gross invested capital tracks ALL BUY costs, so the overall PnL %
-#   remains meaningful even after positions are fully sold.
+# - gross_buy_cost tracks ordinary BUY rows; SWAP_IN rows are excluded to avoid
+#   counting a conversion as fresh buying volume. It is not the same as external deposits.
 
 asset_states = {}
 
@@ -384,6 +384,7 @@ if not raw_df_initial.empty:
     c_asset = next((c for c in df_sorted.columns if 'asset' in c.lower()), 'Asset')
     c_amount = next((c for c in df_sorted.columns if 'amount' in c.lower()), 'Amount')
     c_cost = next((c for c in df_sorted.columns if 'cost' in c.lower() or 'usd' in c.lower()), 'USD_Cost')
+    c_tx_type = next((c for c in df_sorted.columns if 'transaction type' in c.lower() or c.lower() == 'type'), None)
 
     if c_date:
         try:
@@ -418,18 +419,25 @@ if not raw_df_initial.empty:
                 'cost_basis': 0.0,
                 'realized_pnl': 0.0,
                 'gross_buy_cost': 0.0,
+                'gross_external_buy_cost': 0.0,
                 'realized_cost_basis': 0.0,
                 'realized_proceeds': 0.0
             }
 
         st_asset = asset_states[ast]
+        tx_type_value = str(row.get(c_tx_type, '')).strip().upper() if c_tx_type else ''
 
         if amt > 0:
-            # BUY
+            # BUY / SWAP_IN. Incoming swap assets get cost basis, but are not counted
+            # as fresh external buys in the gross-buy denominator.
             buy_cost = abs(cost_val)
             st_asset['holdings'] += amt
             st_asset['cost_basis'] += buy_cost
+            # Per-asset lifetime return includes all acquisition cost, including swaps.
             st_asset['gross_buy_cost'] += buy_cost
+            # Portfolio purchase-volume denominator excludes the incoming side of swaps.
+            if tx_type_value != 'SWAP_IN':
+                st_asset['gross_external_buy_cost'] += buy_cost
 
         else:
             # Negative Amount = removal from holdings.
@@ -494,10 +502,10 @@ st.sidebar.caption(f"Last Transaction: {latest_date}")
 
 action_mode = st.sidebar.radio(
     "Entry Type:",
-    ["Standard Trade", "External Loss / Write-off"],
+    ["Standard Trade", "Swap / Convert", "External Loss / Write-off"],
     horizontal=False
 )
-st.sidebar.caption("SELL = negative Amount + negative USD_Cost. Write-off = negative Amount + USD_Cost $0.00.")
+st.sidebar.caption("SELL = negative Amount + negative USD_Cost. Swap records both sides and does not count the received coin as a fresh external buy. Write-off = negative Amount + USD_Cost $0.00.")
 
 if "Standard" in action_mode:
     tx_type = st.sidebar.radio("Direction:", ["BUY", "SELL"], horizontal=True)
@@ -537,6 +545,44 @@ if "Standard" in action_mode:
                     st.sidebar.error(f"Execution Error: {e}")
         else:
             st.sidebar.error("Provide valid asset, amount, and cost.")
+elif "Swap" in action_mode:
+    st.sidebar.caption("Enter the coin you give and the coin you receive. Use the total USD-equivalent value of the swap; do not enter fees separately.")
+    swap_from_asset = st.sidebar.text_input("Coin Given", "RAY", key="swap_from_asset").upper().strip()
+    swap_from_amount = st.sidebar.number_input("Amount Given", value=0.0, format="%.8f", key="swap_from_amount")
+    swap_to_asset = st.sidebar.text_input("Coin Received", "LTC", key="swap_to_asset").upper().strip()
+    swap_to_amount = st.sidebar.number_input("Amount Received", value=0.0, format="%.8f", key="swap_to_amount")
+    swap_value = st.sidebar.number_input("Total Swap Value (USDC/USD equivalent)", value=0.0, format="%.2f", key="swap_value")
+
+    if st.sidebar.button("Log Swap / Convert"):
+        available_from = asset_states.get(swap_from_asset, {}).get('holdings', 0.0)
+        if not swap_from_asset or not swap_to_asset or swap_from_asset == swap_to_asset:
+            st.sidebar.error("Choose two different valid asset tickers.")
+        elif swap_from_amount <= 0 or swap_to_amount <= 0 or swap_value <= 0:
+            st.sidebar.error("Enter positive amounts and a positive total swap value.")
+        elif swap_from_amount > available_from + 1e-8:
+            st.sidebar.error(f"Insufficient {swap_from_asset} balance! Available: {available_from:.8f}")
+        else:
+            t_date = datetime.now().strftime("%Y-%m-%d")
+            try:
+                sheet = get_g_sheet()
+                # Add a fifth column for transaction type without altering existing rows.
+                headers = sheet.row_values(1)
+                if len(headers) < 5:
+                    sheet.update_cell(1, 5, "Transaction Type")
+                elif not str(headers[4]).strip():
+                    sheet.update_cell(1, 5, "Transaction Type")
+                # Paired rows preserve the existing four-column ledger logic.
+                # SWAP_OUT realizes PnL on the disposed asset; SWAP_IN establishes
+                # the received asset's cost basis without inflating gross external buys.
+                sheet.append_rows([
+                    [t_date, swap_from_asset, f"{-swap_from_amount:.8f}", f"{-swap_value:.2f}", "SWAP_OUT"],
+                    [t_date, swap_to_asset, f"{swap_to_amount:.8f}", f"{swap_value:.2f}", "SWAP_IN"]
+                ], value_input_option="USER_ENTERED")
+                st.cache_data.clear()
+                st.sidebar.success(f"Swap logged: {swap_from_amount:.8f} {swap_from_asset} → {swap_to_amount:.8f} {swap_to_asset}.")
+                st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Swap Error: {e}")
 else:
     burn_asset = st.sidebar.text_input("Asset Ticker", "BTC").upper().strip()
     burn_amount = st.sidebar.number_input("Amount to Remove", value=0.0, format="%.6f")
@@ -574,9 +620,17 @@ if not raw_df_initial.empty:
             sheet = get_g_sheet()
             all_values = sheet.get_all_values()
             if len(all_values) > 1:
-                sheet.delete_rows(len(all_values))
+                last_row_num = len(all_values)
+                last_type = str(all_values[-1][4]).strip().upper() if len(all_values[-1]) > 4 else ""
+                previous_type = str(all_values[-2][4]).strip().upper() if len(all_values[-2]) > 4 else ""
+                if last_type == "SWAP_IN" and previous_type == "SWAP_OUT":
+                    sheet.delete_rows(last_row_num - 1, last_row_num)
+                    message = "Last swap removed (both rows)."
+                else:
+                    sheet.delete_rows(last_row_num)
+                    message = "Last entry removed."
                 st.cache_data.clear()
-                st.sidebar.success("Last entry removed.")
+                st.sidebar.success(message)
                 st.rerun()
         except Exception as e:
             st.sidebar.error(f"Error: {e}")
@@ -784,7 +838,7 @@ current_values = {}
 total_current_portfolio = 0.0
 total_active_cost = 0.0
 total_realized_pnl = sum(state['realized_pnl'] for state in asset_states.values())
-total_gross_invested = sum(state.get('gross_buy_cost', 0.0) for state in asset_states.values())
+total_gross_invested = sum(state.get('gross_external_buy_cost', 0.0) for state in asset_states.values())
 
 for asset, data in portfolio_data.items():
     amt = data["amount"]
