@@ -280,6 +280,74 @@ st.markdown("""
     section[data-testid="stSidebar"] .stMarkdown p {
         line-height: 1.35 !important;
     }
+
+    /* Premium sidebar controls: no default Streamlit red accents. */
+    .sidebar-kicker {
+        color: #8b98a7 !important;
+        font-size: 0.72rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.06em !important;
+        text-transform: uppercase !important;
+        margin: 0.15rem 0 0.45rem 0 !important;
+    }
+    .sidebar-kicker-spaced { margin-top: 1.1rem !important; }
+
+    section[data-testid="stSidebar"] .stButton > button {
+        background: #15191f !important;
+        border: 1px solid #2b323c !important;
+        color: #cbd5e1 !important;
+        border-radius: 7px !important;
+        min-height: 34px !important;
+        padding: 0.34rem 0.55rem !important;
+        font-size: 0.78rem !important;
+        font-weight: 600 !important;
+    }
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: #1d232b !important;
+        border-color: #46515f !important;
+        color: #ffffff !important;
+    }
+
+    .weight-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #d8dee7;
+        font-size: 0.76rem;
+        font-weight: 650;
+        margin-top: 0.72rem;
+        margin-bottom: 0.28rem;
+        letter-spacing: 0.015em;
+    }
+    .weight-label span {
+        color: #8f9dab;
+        font-family: 'Inter', sans-serif;
+        font-weight: 600;
+    }
+    .weight-track {
+        width: 100%;
+        height: 5px;
+        border-radius: 999px;
+        background: #1b2027;
+        overflow: hidden;
+        border: 1px solid #242b34;
+        margin-bottom: 0.18rem;
+    }
+    .weight-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: #718096;
+    }
+    .allocation-total {
+        margin-top: 0.9rem;
+        padding-top: 0.65rem;
+        border-top: 1px solid #232931;
+        color: #8f9aa8;
+        font-size: 0.75rem;
+    }
+    .allocation-total strong { color: #e5e7eb; font-weight: 650; }
+    .allocation-total span { color: #657180; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -748,12 +816,62 @@ if not raw_df_initial.empty:
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Target Allocation")
 
+def _safe_widget_key(value):
+    return "".join(ch if ch.isalnum() else "_" for ch in str(value))
+
+def _inject_selected_button_css(selected_keys, prefix):
+    """Style selected sidebar buttons without relying on Streamlit's red primary theme."""
+    selected_rules = []
+    for raw_key in selected_keys:
+        css_key = _safe_widget_key(raw_key)
+        selected_rules.append(f"""
+        .st-key-{prefix}_{css_key} button {{
+            background: #27313c !important;
+            border-color: #526274 !important;
+            color: #f8fafc !important;
+            box-shadow: inset 0 0 0 1px rgba(148,163,184,0.05) !important;
+        }}
+        .st-key-{prefix}_{css_key} button:hover {{
+            background: #303c49 !important;
+            border-color: #64748b !important;
+        }}
+        """)
+    st.markdown(
+        "<style>" + "".join(selected_rules) + "</style>",
+        unsafe_allow_html=True,
+    )
+
+# Replace the red Streamlit multiselect chips with compact neutral toggle buttons.
 default_dca_selection = [ast for ast in unique_assets_in_sheet if ast != "PUMP"]
-active_dca_assets = st.sidebar.multiselect(
-    "Active Assets",
-    options=unique_assets_in_sheet,
-    default=default_dca_selection
-)
+if "_active_dca_assets_ui" not in st.session_state:
+    st.session_state["_active_dca_assets_ui"] = list(default_dca_selection)
+else:
+    # Remove assets that no longer exist and automatically include newly discovered assets.
+    previous_universe = set(st.session_state.get("_active_dca_assets_universe", []))
+    current_universe = set(unique_assets_in_sheet)
+    selected_now = [a for a in st.session_state["_active_dca_assets_ui"] if a in current_universe]
+    for new_asset in unique_assets_in_sheet:
+        if new_asset not in previous_universe and new_asset != "PUMP" and new_asset not in selected_now:
+            selected_now.append(new_asset)
+    st.session_state["_active_dca_assets_ui"] = selected_now
+st.session_state["_active_dca_assets_universe"] = list(unique_assets_in_sheet)
+
+active_dca_assets = list(st.session_state["_active_dca_assets_ui"])
+_inject_selected_button_css(active_dca_assets, "dca_asset")
+
+st.sidebar.markdown("<div class='sidebar-kicker'>Active assets</div>", unsafe_allow_html=True)
+asset_cols = st.sidebar.columns(2, gap="small")
+for idx, asset in enumerate(unique_assets_in_sheet):
+    key_suffix = _safe_widget_key(asset)
+    label = f"✓ {asset}" if asset in active_dca_assets else asset
+    if asset_cols[idx % 2].button(label, key=f"dca_asset_{key_suffix}", use_container_width=True):
+        updated = list(st.session_state["_active_dca_assets_ui"])
+        if asset in updated:
+            updated.remove(asset)
+        else:
+            updated.append(asset)
+        st.session_state["_active_dca_assets_ui"] = updated
+        st.rerun()
 
 cmc_prices, cmc_resolved_slugs = get_cmc_market_data(unique_assets_in_sheet)
 
@@ -771,7 +889,6 @@ for ast, state in asset_states.items():
         'realized_proceeds': state.get('realized_proceeds', 0.0),
         'gross_buy_cost': state.get('gross_buy_cost', 0.0),
         'is_dca': ast in active_dca_assets,
-        # CMC supplies the real slug automatically. Known exceptions remain as fallback.
         'cmc_slug': cmc_resolved_slugs.get(ast, default_slugs.get(ast, ast.lower()))
     }
     if amt > 1e-4:
@@ -781,7 +898,6 @@ for ast, state in asset_states.items():
 tot_dca_val_temp = sum(temp_portfolio_vals.get(ast, 0.0) for ast in active_dca_assets)
 
 def persist_custom_weights_from_session():
-    """Auto-save the currently edited custom weights so a refresh cannot reset them."""
     weights = {
         asset: float(st.session_state.get(f"num_{asset}", 0.0))
         for asset in active_dca_assets
@@ -790,7 +906,6 @@ def persist_custom_weights_from_session():
     try:
         save_target_settings("custom", weights)
     except Exception:
-        # The UI should still work if Sheets is temporarily unavailable.
         pass
 
 def sync_from_num(asset_name):
@@ -803,36 +918,29 @@ def sync_from_slider(asset_name):
     if st.session_state.get("_target_mode_seen") == "custom":
         persist_custom_weights_from_session()
 
-def adjust_weight(asset_name, delta):
-    curr = st.session_state.get(f"num_{asset_name}", 0.0)
-    new_val = max(0.0, min(100.0, round(curr + delta, 1)))
-    st.session_state[f"num_{asset_name}"] = new_val
-    st.session_state[f"slider_{asset_name}"] = new_val
-    if st.session_state.get("_target_mode_seen") == "custom":
-        persist_custom_weights_from_session()
-
-# Automatic = today's portfolio-derived allocation.
-# Custom = user-defined allocation persisted in the separate Settings sheet.
 saved_weight_mode, saved_custom_weights = load_target_settings()
+if "_target_mode_ui" not in st.session_state:
+    st.session_state["_target_mode_ui"] = "custom" if saved_weight_mode == "custom" else "automatic"
 
-mode_options = ["Automatic", "Custom"]
-mode_default = 1 if saved_weight_mode == "custom" else 0
-selected_weight_mode = st.sidebar.radio(
-    "Allocation Mode",
-    mode_options,
-    index=mode_default,
-    key="target_weight_mode_ui"
-)
-current_mode = "custom" if selected_weight_mode.startswith("Custom") else "automatic"
+current_mode = st.session_state["_target_mode_ui"]
+_inject_selected_button_css([current_mode], "allocation_mode")
+st.sidebar.markdown("<div class='sidebar-kicker sidebar-kicker-spaced'>Allocation mode</div>", unsafe_allow_html=True)
+mode_col_auto, mode_col_custom = st.sidebar.columns(2, gap="small")
+if mode_col_auto.button("Automatic", key="allocation_mode_automatic", use_container_width=True):
+    st.session_state["_target_mode_ui"] = "automatic"
+    current_mode = "automatic"
+    st.rerun()
+if mode_col_custom.button("Custom", key="allocation_mode_custom", use_container_width=True):
+    st.session_state["_target_mode_ui"] = "custom"
+    current_mode = "custom"
+    st.rerun()
 
 if current_mode != saved_weight_mode:
-    # Persist mode change immediately. Custom values are kept even when Automatic is selected,
-    # so switching back to Custom restores the last saved plan.
     try:
         save_target_settings(current_mode, saved_custom_weights)
         saved_weight_mode = current_mode
-    except Exception as e:
-        st.sidebar.warning(f"Could not save Target Weight mode: {e}")
+    except Exception:
+        pass
 
 target_weights = {}
 
@@ -842,69 +950,59 @@ for asset in active_dca_assets:
 
     num_key = f"num_{asset}"
     slider_key = f"slider_{asset}"
+    initial_pct = saved_custom_weights.get(asset, auto_pct) if current_mode == "custom" else auto_pct
 
-    if current_mode == "custom":
-        initial_pct = saved_custom_weights.get(asset, auto_pct)
-    else:
-        initial_pct = auto_pct
-
-    # Automatic mode always reflects today's holdings. Custom mode initializes once
-    # from the saved setting and then lets the controls own the value.
     if current_mode == "automatic":
         st.session_state[num_key] = float(round(initial_pct, 1))
         st.session_state[slider_key] = st.session_state[num_key]
+    elif num_key not in st.session_state or st.session_state.get("_target_mode_seen") != "custom":
+        st.session_state[num_key] = float(round(initial_pct, 1))
+        st.session_state[slider_key] = st.session_state[num_key]
+
+    st.sidebar.markdown(
+        f"<div class='weight-label'>{asset}<span>{st.session_state[num_key]:.1f}%</span></div>",
+        unsafe_allow_html=True,
+    )
+
+    # In automatic mode the allocation is informative, so show a clean bar instead of disabled inputs.
+    if current_mode == "automatic":
+        pct = max(0.0, min(100.0, float(st.session_state[num_key])))
+        st.sidebar.markdown(
+            f"<div class='weight-track'><div class='weight-fill' style='width:{pct:.1f}%'></div></div>",
+            unsafe_allow_html=True,
+        )
     else:
-        if num_key not in st.session_state or st.session_state.get("_target_mode_seen") != "custom":
-            st.session_state[num_key] = float(round(initial_pct, 1))
-            st.session_state[slider_key] = st.session_state[num_key]
-
-    st.sidebar.markdown(f"<div style='font-size: 0.8rem; font-weight: 600; color: #e4e4e7; margin-top: 10px;'>{asset} TARGET WEIGHT</div>", unsafe_allow_html=True)
-
-    # Use Streamlit's built-in number input steppers. Extra +/- buttons here
-    # duplicated those controls and made each target-weight row look cramped.
-    st.sidebar.number_input(
-        label=f"{asset}_num",
-        min_value=0.0,
-        max_value=100.0,
-        step=0.5,
-        key=num_key,
-        on_change=sync_from_num,
-        args=(asset,),
-        disabled=(current_mode == "automatic"),
-        label_visibility="collapsed"
-    )
-
-    st.sidebar.slider(
-        label=f"{asset}_slider",
-        min_value=0.0,
-        max_value=100.0,
-        key=slider_key,
-        on_change=sync_from_slider,
-        args=(asset,),
-        disabled=(current_mode == "automatic"),
-        label_visibility="collapsed"
-    )
+        st.sidebar.number_input(
+            label=f"{asset}_num",
+            min_value=0.0,
+            max_value=100.0,
+            step=0.5,
+            key=num_key,
+            on_change=sync_from_num,
+            args=(asset,),
+            label_visibility="collapsed"
+        )
+        st.sidebar.slider(
+            label=f"{asset}_slider",
+            min_value=0.0,
+            max_value=100.0,
+            key=slider_key,
+            on_change=sync_from_slider,
+            args=(asset,),
+            label_visibility="collapsed"
+        )
 
     target_weights[asset] = st.session_state[num_key]
 
-# Keep the current mode marker after controls have initialized.
 st.session_state["_target_mode_seen"] = current_mode
-
-# Keep the setup visually quiet: save/recalculation details are implementation notes,
-# not something the execution sidebar needs to explain on every screen.
 
 for asset in portfolio_data:
     portfolio_data[asset]['target_pct'] = (target_weights.get(asset, 0.0) / 100.0) if asset in active_dca_assets else 0.0
 
 total_weight_sum = sum(target_weights.values())
-# Automatic weights can total 99.9/100.1 after display rounding; that is not a real warning.
-# Only show a quiet status in Custom mode when the user-defined weights materially miss 100%.
 if current_mode == "custom" and active_dca_assets and abs(total_weight_sum - 100.0) > 0.1:
     st.sidebar.markdown(
-        f"<div style='font-size:0.76rem; color:#9ca3af; padding:7px 0 2px 0; "
-        f"border-top:1px solid #20242b; margin-top:10px;'>"
-        f"Total allocation <span style='color:#e5e7eb; font-weight:600;'>{total_weight_sum:.1f}%</span> "
-        f"<span style='color:#6b7280;'>· target 100%</span></div>",
+        f"<div class='allocation-total'>Total <strong>{total_weight_sum:.1f}%</strong><span> / 100%</span></div>",
         unsafe_allow_html=True
     )
 
