@@ -89,28 +89,75 @@ st.markdown("""
         font-weight: 600;
     }
 
-    /* Standard Buttons */
-    .stButton>button, .stDownloadButton>button {
-        background-color: #18181b !important;
-        color: #f4f4f5 !important;
-        border: 1px solid #27272a !important;
-        border-radius: 6px !important;
-        font-weight: 500 !important;
-        font-size: 0.85rem !important;
-        padding: 0.4rem 0.9rem !important;
+    /* Buttons: restrained slate palette with a calm teal primary action */
+    .stButton > button, .stDownloadButton > button {
+        background: #1b2028 !important;
+        color: #e8edf3 !important;
+        border: 1px solid #343d49 !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-size: 0.86rem !important;
+        padding: 0.48rem 0.95rem !important;
         box-shadow: none !important;
-        transition: all 0.15s ease !important;
+        transition: background-color 0.15s ease, border-color 0.15s ease !important;
     }
-    .stButton>button:hover, .stDownloadButton>button:hover {
-        background-color: #27272a !important;
-        border-color: #3f3f46 !important;
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        background: #28313d !important;
+        border-color: #526174 !important;
         color: #ffffff !important;
+    }
+    .stButton > button[kind="primary"], button[kind="primary"] {
+        background: #0f766e !important;
+        color: #ffffff !important;
+        border: 1px solid #16877e !important;
+    }
+    .stButton > button[kind="primary"]:hover, button[kind="primary"]:hover {
+        background: #0d9488 !important;
+        border-color: #2dd4bf !important;
+    }
+    .stButton > button:focus:not(:active), .stDownloadButton > button:focus:not(:active) {
+        border-color: #2dd4bf !important;
+        box-shadow: 0 0 0 1px #2dd4bf33 !important;
     }
 
     /* Sidebar Styling */
     section[data-testid="stSidebar"] {
         background-color: #0c0c0e !important;
         border-right: 1px solid #27272a !important;
+        min-width: 310px !important;
+        width: 310px !important;
+    }
+    section[data-testid="stSidebar"] > div {
+        width: 310px !important;
+    }
+    /* Let main-page columns shrink to the available viewport instead of clipping. */
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        min-width: 0 !important;
+    }
+    div[data-testid="stMetricValue"] {
+        overflow-wrap: anywhere !important;
+        word-break: normal !important;
+        font-size: clamp(0.88rem, 1.35vw, 1.4rem) !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        overflow-wrap: anywhere !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        flex-wrap: wrap !important;
+        white-space: normal !important;
+        row-gap: 2px !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 7px 9px !important;
+        font-size: 0.78rem !important;
+    }
+    /* Keep selected DCA assets readable instead of clipping their tags. */
+    div[data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+        flex-wrap: wrap !important;
+        height: auto !important;
+        min-height: 42px !important;
+        max-height: 120px !important;
+        overflow-y: auto !important;
     }
     section[data-testid="stSidebar"] hr {
         border-color: #27272a;
@@ -119,12 +166,27 @@ st.markdown("""
 
     /* Custom Input & Controls */
     .stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] {
-        background-color: #121215 !important;
-        border: 1px solid #27272a !important;
-        color: #f4f4f5 !important;
-        border-radius: 6px !important;
-        font-size: 0.875rem !important;
-        font-family: 'JetBrains Mono', monospace !important;
+        background-color: #12161c !important;
+        border: 1px solid #303946 !important;
+        color: #f1f5f9 !important;
+        border-radius: 8px !important;
+        font-size: 0.9rem !important;
+    }
+    /* JetBrains Mono uses slashed zeros; use Inter for editable values so 0 is clear. */
+    .stNumberInput input, .stTextInput input {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        font-variant-numeric: tabular-nums !important;
+        font-feature-settings: "zero" 0 !important;
+        letter-spacing: 0.01em !important;
+    }
+    .stNumberInput button {
+        background: #1b2028 !important;
+        color: #cbd5e1 !important;
+        border-color: #343d49 !important;
+    }
+    .stNumberInput button:hover {
+        background: #28313d !important;
+        color: #ffffff !important;
     }
 
     /* Minus / Plus Quick Action Buttons */
@@ -134,21 +196,21 @@ st.markdown("""
         font-weight: 600 !important;
         padding: 0 !important;
         line-height: 1 !important;
-        background-color: #141417 !important;
-        border: 1px solid #27272a !important;
-        color: #a1a1aa !important;
+        background-color: #1b2028 !important;
+        border: 1px solid #343d49 !important;
+        color: #cbd5e1 !important;
     }
     div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button:hover {
         color: #ffffff !important;
-        border-color: #3f3f46 !important;
-        background-color: #27272a !important;
+        border-color: #526174 !important;
+        background-color: #28313d !important;
     }
 
     /* Custom Sliders */
     div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
-        background-color: #f4f4f5 !important;
-        border: 2px solid #ffffff !important;
-        box-shadow: 0 0 10px rgba(255,255,255,0.15);
+        background-color: #2dd4bf !important;
+        border: 2px solid #99f6e4 !important;
+        box-shadow: 0 0 8px rgba(45,212,191,0.18);
     }
     div.stSlider > div[data-baseweb="slider"] div > div > div {
         background-color: #3f3f46 !important;
@@ -740,26 +802,19 @@ for asset in active_dca_assets:
 
     st.sidebar.markdown(f"<div style='font-size: 0.8rem; font-weight: 600; color: #e4e4e7; margin-top: 10px;'>{asset} TARGET WEIGHT</div>", unsafe_allow_html=True)
 
-    col_minus, col_box, col_plus = st.sidebar.columns([1, 2.4, 1])
-
-    with col_minus:
-        st.button("-", key=f"btn_dec_{asset}", on_click=adjust_weight, args=(asset, -1.0), use_container_width=True, disabled=(current_mode == "automatic"))
-
-    with col_box:
-        st.number_input(
-            label=f"{asset}_num",
-            min_value=0.0,
-            max_value=100.0,
-            step=0.5,
-            key=num_key,
-            on_change=sync_from_num,
-            args=(asset,),
-            disabled=(current_mode == "automatic"),
-            label_visibility="collapsed"
-        )
-
-    with col_plus:
-        st.button("+", key=f"btn_inc_{asset}", on_click=adjust_weight, args=(asset, 1.0), use_container_width=True, disabled=(current_mode == "automatic"))
+    # Use Streamlit's built-in number input steppers. Extra +/- buttons here
+    # duplicated those controls and made each target-weight row look cramped.
+    st.sidebar.number_input(
+        label=f"{asset}_num",
+        min_value=0.0,
+        max_value=100.0,
+        step=0.5,
+        key=num_key,
+        on_change=sync_from_num,
+        args=(asset,),
+        disabled=(current_mode == "automatic"),
+        label_visibility="collapsed"
+    )
 
     st.sidebar.slider(
         label=f"{asset}_slider",
