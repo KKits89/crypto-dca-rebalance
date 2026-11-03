@@ -560,7 +560,7 @@ default_slugs = {
 #   the realized PnL of SOL.
 # - Unrealized PnL is calculated only on currently held coins.
 # - Net PnL = realized PnL + unrealized PnL.
-# - gross_buy_cost tracks ordinary BUY rows; SWAP_IN rows are excluded to avoid
+# - gross_buy_cost tracks all acquisitions for per-asset lifetime return.
 #   counting a conversion as fresh buying volume. It is not the same as external deposits.
 
 asset_states = {}
@@ -624,7 +624,7 @@ if not raw_df_initial.empty:
             # Per-asset lifetime return includes all acquisition cost, including swaps.
             st_asset['gross_buy_cost'] += buy_cost
             # Portfolio purchase-volume denominator excludes the incoming side of swaps.
-            if tx_type_value != 'SWAP_IN':
+            if tx_type_value not in {'SWAP_IN', 'BUY_REINVESTED'}:
                 st_asset['gross_external_buy_cost'] += buy_cost
 
         else:
@@ -726,6 +726,35 @@ if action_mode == "Trade":
     </style>
     """, unsafe_allow_html=True)
 
+    buy_funding_type = "BUY_EXTERNAL"
+    if tx_type == "BUY":
+        st.sidebar.markdown('<div class="trade-direction-label">Funding</div>', unsafe_allow_html=True)
+        if "buy_funding_source" not in st.session_state:
+            st.session_state["buy_funding_source"] = "New capital"
+        fund_cols = st.sidebar.columns(2, gap="small")
+        if fund_cols[0].button("New capital", key="funding_new", use_container_width=True):
+            st.session_state["buy_funding_source"] = "New capital"
+        if fund_cols[1].button("Reinvest", key="funding_reinvest", use_container_width=True):
+            st.session_state["buy_funding_source"] = "Reinvest"
+        funding_source = st.session_state["buy_funding_source"]
+        funding_selected = "funding_new" if funding_source == "New capital" else "funding_reinvest"
+        st.sidebar.markdown(f"""
+        <style>
+        .st-key-funding_new button, .st-key-funding_reinvest button {{
+            min-height: 2.05rem !important; border-radius: 8px !important;
+            border: 1px solid #2b3440 !important; background: #11161d !important;
+            color: #aeb8c5 !important; font-weight: 620 !important; box-shadow: none !important;
+        }}
+        .st-key-funding_new button:hover, .st-key-funding_reinvest button:hover {{
+            border-color: #465363 !important; background: #171e27 !important; color: #eef3f8 !important;
+        }}
+        .st-key-{{funding_selected}} button {{
+            background: #263445 !important; border-color: #52677e !important; color: #ffffff !important;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+        buy_funding_type = "BUY_EXTERNAL" if funding_source == "New capital" else "BUY_REINVESTED"
+
     asset_input = st.sidebar.text_input("Asset", "BTC").upper().strip()
     amount_input = st.sidebar.number_input("Quantity", value=0.0, format="%.8f")
     cost_input = st.sidebar.number_input("Total value (USDC / USD)", value=0.0, format="%.2f")
@@ -740,7 +769,10 @@ if action_mode == "Trade":
                 else:
                     try:
                         sheet = get_g_sheet()
-                        sheet.append_row([t_date, asset_input, f"{-amount_input:.8f}", f"{-cost_input:.2f}"])
+                        headers = sheet.row_values(1)
+                        if len(headers) < 5 or not str(headers[4]).strip():
+                            sheet.update_cell(1, 5, "Transaction Type")
+                        sheet.append_row([t_date, asset_input, f"{-amount_input:.8f}", f"{-cost_input:.2f}", "SELL"])
                         st.cache_data.clear()
                         st.sidebar.success("Sale recorded")
                         st.rerun()
@@ -749,7 +781,10 @@ if action_mode == "Trade":
             else:
                 try:
                     sheet = get_g_sheet()
-                    sheet.append_row([t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}"])
+                    headers = sheet.row_values(1)
+                    if len(headers) < 5 or not str(headers[4]).strip():
+                        sheet.update_cell(1, 5, "Transaction Type")
+                    sheet.append_row([t_date, asset_input, f"{amount_input:.8f}", f"{cost_input:.2f}", buy_funding_type])
                     st.cache_data.clear()
                     st.sidebar.success("Purchase recorded")
                     st.rerun()
@@ -802,7 +837,10 @@ else:
             t_date = datetime.now().strftime("%Y-%m-%d")
             try:
                 sheet = get_g_sheet()
-                sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", "0.00"])
+                headers = sheet.row_values(1)
+                if len(headers) < 5 or not str(headers[4]).strip():
+                    sheet.update_cell(1, 5, "Transaction Type")
+                sheet.append_row([t_date, burn_asset, f"-{burn_amount:.8f}", "0.00", "WRITE_OFF"])
                 st.cache_data.clear()
                 st.sidebar.success("Write-off recorded")
                 st.rerun()
@@ -837,7 +875,7 @@ if not raw_df_initial.empty:
             <div style="display:flex; justify-content:space-between; gap:14px;">
                 <div>
                     <div style="font-size:10px; color:#7f8898; text-transform:uppercase; letter-spacing:.05em;">Amount</div>
-                    <div style="font-size:13px; font-weight:600; margin-top:2px;">{last_amount} {last_asset}</div>
+                    <div style="font-size:13px; font-weight:600; margin-top:2px;">{last_amount}</div>
                 </div>
                 <div style="text-align:right;">
                     <div style="font-size:10px; color:#7f8898; text-transform:uppercase; letter-spacing:.05em;">Value</div>
@@ -968,12 +1006,12 @@ def persist_custom_weights_from_session():
 def sync_from_num(asset_name):
     st.session_state[f"slider_{asset_name}"] = st.session_state[f"num_{asset_name}"]
     if st.session_state.get("_target_mode_seen") == "custom":
-        persist_custom_weights_from_session()
+        st.session_state["_custom_weights_dirty"] = True
 
 def sync_from_slider(asset_name):
     st.session_state[f"num_{asset_name}"] = st.session_state[f"slider_{asset_name}"]
     if st.session_state.get("_target_mode_seen") == "custom":
-        persist_custom_weights_from_session()
+        st.session_state["_custom_weights_dirty"] = True
 
 saved_weight_mode, saved_custom_weights = load_target_settings()
 if "_target_mode_ui" not in st.session_state:
@@ -996,8 +1034,9 @@ if current_mode != saved_weight_mode:
     try:
         save_target_settings(current_mode, saved_custom_weights)
         saved_weight_mode = current_mode
-    except Exception:
-        pass
+        st.session_state["_allocation_save_status"] = f"Mode saved: {current_mode.title()}"
+    except Exception as e:
+        st.session_state["_allocation_save_error"] = str(e)
 
 target_weights = {}
 
@@ -1062,6 +1101,25 @@ if current_mode == "custom" and active_dca_assets and abs(total_weight_sum - 100
         f"<div class='allocation-total'>Total <strong>{total_weight_sum:.1f}%</strong><span> / 100%</span></div>",
         unsafe_allow_html=True
     )
+
+if current_mode == "custom":
+    if st.sidebar.button("Save Custom Allocation", key="save_custom_allocation", use_container_width=True):
+        weights_to_save = {asset: float(target_weights.get(asset, 0.0)) for asset in active_dca_assets}
+        try:
+            save_target_settings("custom", weights_to_save)
+            st.session_state["_custom_weights_dirty"] = False
+            st.session_state["_allocation_save_status"] = "Custom allocation saved"
+            st.session_state.pop("_allocation_save_error", None)
+            st.rerun()
+        except Exception as e:
+            st.session_state["_allocation_save_error"] = str(e)
+
+    if st.session_state.get("_custom_weights_dirty"):
+        st.sidebar.caption("Unsaved changes")
+    elif st.session_state.get("_allocation_save_status"):
+        st.sidebar.caption(st.session_state["_allocation_save_status"])
+    if st.session_state.get("_allocation_save_error"):
+        st.sidebar.error(f"Could not save allocation: {st.session_state['_allocation_save_error']}")
 
 # --- INDICATORS & CORE METRICS ENGINE ---
 fng_value, fng_label = get_fear_and_greed()
