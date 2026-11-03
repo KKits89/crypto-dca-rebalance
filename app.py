@@ -693,7 +693,39 @@ action_mode = st.sidebar.selectbox(
 )
 
 if action_mode == "Trade":
-    tx_type = st.sidebar.radio("Direction", ["BUY", "SELL"], horizontal=True)
+    if "trade_direction" not in st.session_state:
+        st.session_state["trade_direction"] = "BUY"
+
+    st.sidebar.markdown('<div class="trade-direction-label">Direction</div>', unsafe_allow_html=True)
+    direction_cols = st.sidebar.columns(2, gap="small")
+    if direction_cols[0].button("BUY", key="trade_direction_buy", use_container_width=True):
+        st.session_state["trade_direction"] = "BUY"
+    if direction_cols[1].button("SELL", key="trade_direction_sell", use_container_width=True):
+        st.session_state["trade_direction"] = "SELL"
+
+    tx_type = st.session_state["trade_direction"]
+    selected_key = "trade_direction_buy" if tx_type == "BUY" else "trade_direction_sell"
+    st.sidebar.markdown(f"""
+    <style>
+    .trade-direction-label {{ margin: .15rem 0 .35rem 0; font-size: .84rem; font-weight: 600; color: #d8dee9; }}
+    .st-key-trade_direction_buy button, .st-key-trade_direction_sell button {{
+        min-height: 2.15rem !important; border-radius: 8px !important;
+        border: 1px solid #2b3440 !important; background: #11161d !important;
+        color: #aeb8c5 !important; font-weight: 650 !important; box-shadow: none !important;
+    }}
+    .st-key-trade_direction_buy button:hover, .st-key-trade_direction_sell button:hover {{
+        border-color: #465363 !important; background: #171e27 !important; color: #eef3f8 !important;
+    }}
+    .st-key-{{selected_key}} button {{
+        background: #263445 !important; border-color: #52677e !important;
+        color: #ffffff !important; box-shadow: inset 0 0 0 1px rgba(255,255,255,.03) !important;
+    }}
+    .st-key-{{selected_key}} button:hover {{
+        background: #2b3b4d !important; border-color: #647c95 !important; color: #ffffff !important;
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
     asset_input = st.sidebar.text_input("Asset", "BTC").upper().strip()
     amount_input = st.sidebar.number_input("Quantity", value=0.0, format="%.8f")
     cost_input = st.sidebar.number_input("Total value (USDC / USD)", value=0.0, format="%.2f")
