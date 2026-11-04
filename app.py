@@ -348,6 +348,172 @@ st.markdown("""
     .allocation-total strong { color: #e5e7eb; font-weight: 650; }
     .allocation-total span { color: #657180; }
 
+
+    /* Execution panel: a compact companion to the main Portfolio Terminal. */
+    .exec-balance-card {
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        gap:10px;
+        padding:13px 14px;
+        margin:2px 0 17px;
+        background:linear-gradient(130deg, #151a21 0%, #101318 100%);
+        border:1px solid #2a333d;
+        border-radius:10px;
+        font-family:Inter,system-ui,-apple-system,sans-serif;
+    }
+    .exec-balance-label {
+        font-size:10px;
+        letter-spacing:.085em;
+        font-weight:650;
+        color:#8f9ead;
+    }
+    .exec-balance-value {
+        font-size:19px;
+        font-weight:700;
+        letter-spacing:-.025em;
+        color:#eaf0f6;
+        font-variant-numeric:tabular-nums;
+        font-feature-settings:"zero" 0;
+        white-space:nowrap;
+    }
+    .exec-field-label {
+        color:#9ba8b8;
+        font-size:11px;
+        font-weight:650;
+        letter-spacing:.06em;
+        text-transform:uppercase;
+        margin:8px 0 8px;
+        font-family:Inter,system-ui,sans-serif;
+    }
+    .exec-small-label {
+        color:#9ba8b8;
+        font-size:11px;
+        font-weight:650;
+        letter-spacing:.06em;
+        text-transform:uppercase;
+        margin:14px 0 6px;
+        font-family:Inter,system-ui,sans-serif;
+    }
+    .exec-preview {
+        border:1px solid #29323e;
+        background:#12161c;
+        padding:12px 13px;
+        margin:16px 0 11px;
+        border-radius:10px;
+        font-family:Inter,system-ui,sans-serif;
+    }
+    .exec-preview-kicker {
+        color:#92a0af;
+        letter-spacing:.08em;
+        font-size:10px;
+        font-weight:700;
+        margin-bottom:8px;
+    }
+    .exec-preview-primary {
+        font-size:14px;
+        font-weight:700;
+        line-height:1.55;
+        color:#ebeff5;
+        font-feature-settings:"zero" 0;
+        overflow-wrap:anywhere;
+    }
+    .exec-preview-detail {
+        color:#9aa8b6;
+        font-size:12px;
+        margin-top:4px;
+        line-height:1.5;
+        font-feature-settings:"zero" 0;
+        overflow-wrap:anywhere;
+    }
+    .exec-help {
+        font-size:11px;
+        color:#91a0af;
+        margin:3px 0 8px;
+        line-height:1.5;
+        font-family:Inter,system-ui,sans-serif;
+    }
+    section[data-testid="stSidebar"] .st-key-execution_action_mode [data-baseweb="select"] > div {
+        border-radius:9px !important;
+        background:#151a21 !important;
+        border-color:#35414e !important;
+        min-height:41px !important;
+    }
+    section[data-testid="stSidebar"] .st-key-execution_action_mode [data-baseweb="select"]:focus-within > div {
+        border-color:#71869a !important;
+        box-shadow:0 0 0 1px rgba(113,134,154,.14) !important;
+    }
+    /* Target the actual button keys, not the theme's default radio controls. */
+    section[data-testid="stSidebar"] :is(
+        .st-key-trade_direction_buy,
+        .st-key-trade_direction_sell,
+        .st-key-funding_new,
+        .st-key-funding_reinvest
+    ) button {
+        min-height:40px !important;
+        height:40px !important;
+        border-radius:9px !important;
+        border:1px solid #2b333e !important;
+        background:#131820 !important;
+        color:#adbac9 !important;
+        font-family:Inter,system-ui,sans-serif !important;
+        font-size:12px !important;
+        font-weight:650 !important;
+        letter-spacing:.01em !important;
+        padding:5px 7px !important;
+        line-height:1.2 !important;
+        box-shadow:none !important;
+    }
+    section[data-testid="stSidebar"] :is(
+        .st-key-trade_direction_buy,
+        .st-key-trade_direction_sell,
+        .st-key-funding_new,
+        .st-key-funding_reinvest
+    ) button:hover {
+        color:#eaf0f6 !important;
+        border-color:#465466 !important;
+        background:#202833 !important;
+    }
+    section[data-testid="stSidebar"] :is(
+        .st-key-trade_direction_buy,
+        .st-key-trade_direction_sell,
+        .st-key-funding_new,
+        .st-key-funding_reinvest
+    ) button:focus { outline:none !important; box-shadow:none !important; }
+    section[data-testid="stSidebar"] .st-key-execution_record_trade button,
+    section[data-testid="stSidebar"] .st-key-execution_record_swap button,
+    section[data-testid="stSidebar"] .st-key-execution_record_writeoff button,
+    section[data-testid="stSidebar"] .st-key-execution_record_reconcile button {
+        height:44px !important;
+        min-height:44px !important;
+        border-radius:9px !important;
+        border:1px solid #52677b !important;
+        background:#283747 !important;
+        color:#f6f8fb !important;
+        font-size:12px !important;
+        font-weight:700 !important;
+        letter-spacing:.01em !important;
+        box-shadow:none !important;
+        padding:8px 12px !important;
+    }
+    section[data-testid="stSidebar"] :is(
+        .st-key-execution_record_trade,
+        .st-key-execution_record_swap,
+        .st-key-execution_record_writeoff,
+        .st-key-execution_record_reconcile
+    ) button:hover {
+        background:#34495e !important;
+        border-color:#6b8298 !important;
+    }
+    section[data-testid="stSidebar"] .stNumberInput input,
+    section[data-testid="stSidebar"] .stTextInput input,
+    section[data-testid="stSidebar"] .exec-balance-value,
+    section[data-testid="stSidebar"] .exec-preview {
+        font-family:Inter,system-ui,-apple-system,sans-serif !important;
+        font-feature-settings:"zero" 0 !important;
+        font-variant-numeric:tabular-nums;
+    }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -700,63 +866,70 @@ if abs(cash_balance_usdc) <= 1e-8:
 unique_assets_in_sheet = list(asset_states.keys())
 
 # --- SIDEBAR: EXECUTION & CONTROL ---
+# This section is visual-only: transaction types, values, validations and
+# Google Sheet writes remain exactly the same as the existing cash-ledger flow.
+from html import escape as html_escape
+
+
+def _execution_quantity(value):
+    return f"{value:,.8f}".rstrip("0").rstrip(".") if value else "0"
+
+
+def _execution_preview(main_text, detail_text):
+    st.sidebar.markdown(
+        '<div class="exec-preview">'
+        '<div class="exec-preview-kicker">TRANSACTION PREVIEW</div>'
+        f'<div class="exec-preview-primary">{html_escape(main_text)}</div>'
+        f'<div class="exec-preview-detail">{html_escape(detail_text)}</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
 st.sidebar.markdown("### Execution")
 st.sidebar.markdown(
-    f"<div style='font-family:Inter,system-ui,sans-serif;color:#8f9aa8;font-size:.78rem;margin:-.15rem 0 .55rem 0;'>Tracked USDC&nbsp;&nbsp;<strong style='color:#e5e7eb;'>${cash_balance_usdc:,.2f}</strong></div>",
+    f'<div class="exec-balance-card">'
+    f'<div class="exec-balance-label">AVAILABLE USDC</div>'
+    f'<div class="exec-balance-value">${cash_balance_usdc:,.2f}</div>'
+    f'</div>',
     unsafe_allow_html=True,
 )
-new_cash_to_invest = st.sidebar.number_input("Cash to Invest ($)", value=0.0, step=10.0)
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("#### New Transaction")
-latest_date = get_latest_transaction_date(raw_df_initial)
-st.sidebar.caption(f"Last transaction · {latest_date}")
-
+st.sidebar.markdown('<div class="exec-field-label">TRANSACTION TYPE</div>', unsafe_allow_html=True)
 action_mode = st.sidebar.selectbox(
-    "Action",
+    "Transaction type",
     ["Trade", "Swap / Convert", "USDC Balance", "Write-off"],
-    label_visibility="collapsed"
+    label_visibility="collapsed",
+    key="execution_action_mode",
 )
 
 if action_mode == "Trade":
-    if "trade_direction" not in st.session_state:
+    if st.session_state.get("trade_direction") not in {"BUY", "SELL"}:
         st.session_state["trade_direction"] = "BUY"
 
-    st.sidebar.markdown('<div class="trade-direction-label">Direction</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="exec-small-label">DIRECTION</div>', unsafe_allow_html=True)
     direction_cols = st.sidebar.columns(2, gap="small")
     if direction_cols[0].button("BUY", key="trade_direction_buy", use_container_width=True):
         st.session_state["trade_direction"] = "BUY"
     if direction_cols[1].button("SELL", key="trade_direction_sell", use_container_width=True):
         st.session_state["trade_direction"] = "SELL"
-
     tx_type = st.session_state["trade_direction"]
     selected_key = "trade_direction_buy" if tx_type == "BUY" else "trade_direction_sell"
-    st.sidebar.markdown(f"""
-    <style>
-    .trade-direction-label {{ margin: .15rem 0 .35rem 0; font-size: .84rem; font-weight: 600; color: #d8dee9; }}
-    .st-key-trade_direction_buy button, .st-key-trade_direction_sell button {{
-        min-height: 2.15rem !important; border-radius: 8px !important;
-        border: 1px solid #2b3440 !important; background: #11161d !important;
-        color: #aeb8c5 !important; font-weight: 650 !important; box-shadow: none !important;
-    }}
-    .st-key-trade_direction_buy button:hover, .st-key-trade_direction_sell button:hover {{
-        border-color: #465363 !important; background: #171e27 !important; color: #eef3f8 !important;
-    }}
-    .st-key-{{selected_key}} button {{
-        background: #263445 !important; border-color: #52677e !important;
-        color: #ffffff !important; box-shadow: inset 0 0 0 1px rgba(255,255,255,.03) !important;
-    }}
-    .st-key-{{selected_key}} button:hover {{
-        background: #2b3b4d !important; border-color: #647c95 !important; color: #ffffff !important;
-    }}
-    </style>
-    """, unsafe_allow_html=True)
+
+    st.sidebar.markdown(
+        f'<style>section[data-testid="stSidebar"] .st-key-{selected_key} button,'
+        f'section[data-testid="stSidebar"] .st-key-{selected_key} button:hover {{'
+        'background:#29394a !important;border-color:#607992 !important;'
+        'color:#f7f9fc !important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.035) !important;'
+        '}</style>',
+        unsafe_allow_html=True,
+    )
 
     buy_funding_type = "BUY_EXTERNAL"
     if tx_type == "BUY":
-        st.sidebar.markdown('<div class="trade-direction-label">Funding</div>', unsafe_allow_html=True)
-        if "buy_funding_source" not in st.session_state:
+        if st.session_state.get("buy_funding_source") not in {"New capital", "Reinvest"}:
             st.session_state["buy_funding_source"] = "New capital"
+        st.sidebar.markdown('<div class="exec-small-label">FUNDING SOURCE</div>', unsafe_allow_html=True)
         fund_cols = st.sidebar.columns(2, gap="small")
         if fund_cols[0].button("New capital", key="funding_new", use_container_width=True):
             st.session_state["buy_funding_source"] = "New capital"
@@ -764,28 +937,30 @@ if action_mode == "Trade":
             st.session_state["buy_funding_source"] = "Reinvest"
         funding_source = st.session_state["buy_funding_source"]
         funding_selected = "funding_new" if funding_source == "New capital" else "funding_reinvest"
-        st.sidebar.markdown(f"""
-        <style>
-        .st-key-funding_new button, .st-key-funding_reinvest button {{
-            min-height: 2.05rem !important; border-radius: 8px !important;
-            border: 1px solid #2b3440 !important; background: #11161d !important;
-            color: #aeb8c5 !important; font-weight: 620 !important; box-shadow: none !important;
-        }}
-        .st-key-funding_new button:hover, .st-key-funding_reinvest button:hover {{
-            border-color: #465363 !important; background: #171e27 !important; color: #eef3f8 !important;
-        }}
-        .st-key-{{funding_selected}} button {{
-            background: #263445 !important; border-color: #52677e !important; color: #ffffff !important;
-        }}
-        </style>
-        """, unsafe_allow_html=True)
+        st.sidebar.markdown(
+            f'<style>section[data-testid="stSidebar"] .st-key-{funding_selected} button,'
+            f'section[data-testid="stSidebar"] .st-key-{funding_selected} button:hover {{'
+            'background:#29394a !important;border-color:#607992 !important;'
+            'color:#f7f9fc !important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.035) !important;'
+            '}</style>',
+            unsafe_allow_html=True,
+        )
         buy_funding_type = "BUY_EXTERNAL" if funding_source == "New capital" else "BUY_REINVESTED"
 
-    asset_input = st.sidebar.text_input("Asset", "BTC").upper().strip()
-    amount_input = st.sidebar.number_input("Quantity", value=0.0, format="%.8f")
-    cost_input = st.sidebar.number_input("Total value (USDC / USD)", value=0.0, format="%.2f")
+    st.sidebar.markdown('<div class="exec-small-label">ORDER DETAILS</div>', unsafe_allow_html=True)
+    asset_input = st.sidebar.text_input("Asset", "BTC", key="execution_asset").upper().strip()
+    amount_input = st.sidebar.number_input("Quantity", min_value=0.0, value=0.0, format="%.8f", key="execution_quantity")
+    cost_input = st.sidebar.number_input("Total value (USDC)", min_value=0.0, value=0.0, format="%.2f", key="execution_trade_value")
 
-    if st.sidebar.button("Log trade", type="primary", use_container_width=True):
+    qty_text = _execution_quantity(amount_input)
+    if tx_type == "SELL":
+        _execution_preview(f"SELL {qty_text} {asset_input or '—'}", f"USDC received  +{cost_input:,.2f}")
+    elif buy_funding_type == "BUY_REINVESTED":
+        _execution_preview(f"BUY {qty_text} {asset_input or '—'}", f"USDC balance  −{cost_input:,.2f}")
+    else:
+        _execution_preview(f"BUY {qty_text} {asset_input or '—'}", f"New capital  {cost_input:,.2f} USDC")
+
+    if st.sidebar.button(f"Record {tx_type}", type="primary", key="execution_record_trade", use_container_width=True):
         if amount_input > 0 and cost_input > 0 and asset_input:
             t_date = datetime.now().strftime("%Y-%m-%d")
             if tx_type == "SELL":
@@ -829,13 +1004,19 @@ if action_mode == "Trade":
             st.sidebar.error("Enter an asset, quantity and total value greater than zero.")
 
 elif action_mode == "Swap / Convert":
-    swap_from_asset = st.sidebar.text_input("You give · Asset", "RAY", key="swap_from_asset").upper().strip()
-    swap_from_amount = st.sidebar.number_input("You give · Quantity", value=0.0, format="%.8f", key="swap_from_amount")
-    swap_to_asset = st.sidebar.text_input("You receive · Asset", "LTC", key="swap_to_asset").upper().strip()
-    swap_to_amount = st.sidebar.number_input("You receive · Quantity", value=0.0, format="%.8f", key="swap_to_amount")
-    swap_value = st.sidebar.number_input("Swap value (USDC / USD)", value=0.0, format="%.2f", key="swap_value")
+    st.sidebar.markdown('<div class="exec-small-label">YOU SEND</div>', unsafe_allow_html=True)
+    swap_from_asset = st.sidebar.text_input("From asset", "RAY", key="swap_from_asset").upper().strip()
+    swap_from_amount = st.sidebar.number_input("From quantity", min_value=0.0, value=0.0, format="%.8f", key="swap_from_amount")
+    st.sidebar.markdown('<div class="exec-small-label">YOU RECEIVE</div>', unsafe_allow_html=True)
+    swap_to_asset = st.sidebar.text_input("To asset", "LTC", key="swap_to_asset").upper().strip()
+    swap_to_amount = st.sidebar.number_input("To quantity", min_value=0.0, value=0.0, format="%.8f", key="swap_to_amount")
+    swap_value = st.sidebar.number_input("Swap value (USDC)", min_value=0.0, value=0.0, format="%.2f", key="swap_value")
 
-    if st.sidebar.button("Log swap", type="primary", use_container_width=True):
+    _execution_preview(
+        f"{_execution_quantity(swap_from_amount)} {swap_from_asset or '—'} → {_execution_quantity(swap_to_amount)} {swap_to_asset or '—'}",
+        f"Cost basis  {swap_value:,.2f} USDC · No cash movement",
+    )
+    if st.sidebar.button("Record swap", type="primary", key="execution_record_swap", use_container_width=True):
         available_from = asset_states.get(swap_from_asset, {}).get('holdings', 0.0)
         if not swap_from_asset or not swap_to_asset or swap_from_asset == swap_to_asset:
             st.sidebar.error("Choose two different asset tickers.")
@@ -859,9 +1040,9 @@ elif action_mode == "Swap / Convert":
                 st.sidebar.error(f"Could not record swap: {e}")
 
 elif action_mode == "USDC Balance":
-    st.sidebar.caption("Reconcile only · does not change PnL or ROI")
+    st.sidebar.markdown('<div class="exec-help">Adjust tracked USDC without changing PnL or cost basis.</div>', unsafe_allow_html=True)
     desired_usdc_balance = st.sidebar.number_input(
-        "Current USDC balance",
+        "Actual USDC balance",
         min_value=0.0,
         value=float(max(0.0, cash_balance_usdc)),
         step=10.0,
@@ -869,11 +1050,8 @@ elif action_mode == "USDC Balance":
         key="desired_usdc_balance",
     )
     usdc_adjustment = desired_usdc_balance - cash_balance_usdc
-    st.sidebar.markdown(
-        f"<div style='font-family:Inter,system-ui,sans-serif;color:#8f9aa8;font-size:.78rem;margin:.1rem 0 .55rem 0;'>Adjustment&nbsp;&nbsp;<strong style='color:#e5e7eb;'>{usdc_adjustment:+,.2f} USDC</strong></div>",
-        unsafe_allow_html=True,
-    )
-    if st.sidebar.button("Reconcile USDC", use_container_width=True):
+    _execution_preview(f"Set USDC to {desired_usdc_balance:,.2f}", f"Adjustment  {usdc_adjustment:+,.2f} USDC")
+    if st.sidebar.button("Reconcile USDC", key="execution_record_reconcile", use_container_width=True):
         if abs(usdc_adjustment) <= 0.005:
             st.sidebar.info("USDC balance already matches.")
         else:
@@ -891,10 +1069,12 @@ elif action_mode == "USDC Balance":
                 st.sidebar.error(f"Could not reconcile USDC: {e}")
 
 else:
-    burn_asset = st.sidebar.text_input("Asset to remove", "BTC").upper().strip()
-    burn_amount = st.sidebar.number_input("Quantity to remove", value=0.0, format="%.8f")
+    st.sidebar.markdown('<div class="exec-help">Remove holdings without receiving cash.</div>', unsafe_allow_html=True)
+    burn_asset = st.sidebar.text_input("Asset to remove", "BTC", key="execution_writeoff_asset").upper().strip()
+    burn_amount = st.sidebar.number_input("Quantity to remove", min_value=0.0, value=0.0, format="%.8f", key="execution_writeoff_amount")
+    _execution_preview(f"Remove {_execution_quantity(burn_amount)} {burn_asset or '—'}", "No USDC received")
 
-    if st.sidebar.button("Log write-off", type="primary", use_container_width=True):
+    if st.sidebar.button("Record write-off", type="primary", key="execution_record_writeoff", use_container_width=True):
         current_amt = asset_states.get(burn_asset, {}).get('holdings', 0.0)
         if burn_amount > current_amt + 1e-4:
             st.sidebar.error(f"Insufficient {burn_asset} balance · {current_amt:.8f} available")
@@ -911,6 +1091,9 @@ else:
                 st.sidebar.error(f"Could not record write-off: {e}")
         else:
             st.sidebar.error("Enter a quantity greater than zero.")
+
+with st.sidebar.expander("DCA planning cash", expanded=False):
+    new_cash_to_invest = st.number_input("Cash to Invest ($)", value=0.0, step=10.0, key="execution_dca_cash")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Ledger Management")
