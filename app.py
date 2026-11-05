@@ -17,7 +17,7 @@ st.set_page_config(layout="wide", page_title="Portfolio Terminal", initial_sideb
 # --- FINTECH DARK PALETTE & MINIMAL TYPOGRAPHY UI ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap');
 
     html, body, .stApp {
         background-color: #09090b !important;
@@ -181,39 +181,58 @@ st.markdown("""
     }
     .stNumberInput button {
         background: #171a1f !important;
-        color: #cbd5e1 !important;
-        border-color: #343d49 !important;
+        color: #dbe7f3 !important;
+        border-color: #394353 !important;
+        font-family: 'Manrope', 'Inter', sans-serif !important;
+        font-size: 1.05rem !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.01em !important;
     }
     .stNumberInput button:hover {
-        background: #20262e !important;
+        background: #243041 !important;
         color: #ffffff !important;
+        border-color: #6d84a0 !important;
     }
 
     /* Minus / Plus Quick Action Buttons */
     div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button {
-        height: 38px !important;
-        font-size: 1.1rem !important;
-        font-weight: 600 !important;
+        height: 40px !important;
+        font-family: 'Manrope', 'Inter', sans-serif !important;
+        font-size: 1.08rem !important;
+        font-weight: 800 !important;
         padding: 0 !important;
         line-height: 1 !important;
         background-color: #1b2028 !important;
-        border: 1px solid #2d333d !important;
-        color: #cbd5e1 !important;
+        border: 1px solid #334155 !important;
+        color: #dbe7f3 !important;
+        border-radius: 10px !important;
     }
     div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button:hover {
         color: #ffffff !important;
-        border-color: #475569 !important;
-        background-color: #28313d !important;
+        border-color: #6d84a0 !important;
+        background-color: #263244 !important;
     }
 
     /* Custom Sliders */
+    div.stSlider > div[data-baseweb="slider"] {
+        padding-top: 0.15rem !important;
+    }
     div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
-        background-color: #8fa6bd !important;
-        border: 2px solid #c7d2de !important;
-        box-shadow: none;
+        width: 18px !important;
+        height: 18px !important;
+        background-color: #6d84a0 !important;
+        border: 3px solid #d8e3ee !important;
+        box-shadow: 0 0 0 4px rgba(109,132,160,0.18) !important;
     }
     div.stSlider > div[data-baseweb="slider"] div > div > div {
-        background-color: #3f3f46 !important;
+        background-color: #2f3b4b !important;
+    }
+    div.stSlider [data-testid="stThumbValue"],
+    div.stSlider [data-testid="stSliderTickBarMin"],
+    div.stSlider p {
+        color: #8ea6c1 !important;
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 700 !important;
     }
     
     /* Multiselect tags - suppress Streamlit theme red completely */
@@ -886,6 +905,10 @@ def _execution_preview(main_text, detail_text):
     )
 
 
+st.sidebar.markdown("### DCA Planning")
+new_cash_to_invest = st.sidebar.number_input("Cash to Invest ($)", value=0.0, step=10.0, key="execution_dca_cash")
+st.sidebar.markdown("---")
+
 st.sidebar.markdown("### Execution")
 st.sidebar.markdown(
     f'<div class="exec-balance-card">'
@@ -1092,9 +1115,6 @@ else:
         else:
             st.sidebar.error("Enter a quantity greater than zero.")
 
-with st.sidebar.expander("DCA planning cash", expanded=False):
-    new_cash_to_invest = st.number_input("Cash to Invest ($)", value=0.0, step=10.0, key="execution_dca_cash")
-
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Ledger Management")
 
@@ -1167,14 +1187,14 @@ def _inject_selected_button_css(selected_keys, prefix):
         css_key = _safe_widget_key(raw_key)
         selected_rules.append(f"""
         .st-key-{prefix}_{css_key} button {{
-            background: #27313c !important;
-            border-color: #526274 !important;
+            background: #2c3847 !important;
+            border-color: #7287a0 !important;
             color: #f8fafc !important;
-            box-shadow: inset 0 0 0 1px rgba(148,163,184,0.05) !important;
+            box-shadow: inset 0 0 0 1px rgba(226,232,240,0.07) !important;
         }}
         .st-key-{prefix}_{css_key} button:hover {{
-            background: #303c49 !important;
-            border-color: #64748b !important;
+            background: #344254 !important;
+            border-color: #869cb6 !important;
         }}
         """)
     st.markdown(
@@ -1204,7 +1224,7 @@ st.sidebar.markdown("<div class='sidebar-kicker'>Active assets</div>", unsafe_al
 asset_cols = st.sidebar.columns(2, gap="small")
 for idx, asset in enumerate(unique_assets_in_sheet):
     key_suffix = _safe_widget_key(asset)
-    label = f"✓ {asset}" if asset in active_dca_assets else asset
+    label = asset
     if asset_cols[idx % 2].button(label, key=f"dca_asset_{key_suffix}", use_container_width=True):
         updated = list(st.session_state["_active_dca_assets_ui"])
         if asset in updated:
