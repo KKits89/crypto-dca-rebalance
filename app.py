@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import requests
 import json
+import hashlib
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 import gspread
@@ -1212,7 +1213,121 @@ if not raw_df_initial.empty:
         unsafe_allow_html=True
     )
     
-    st.sidebar.caption("Undo temporarily disabled for ledger safety. Check Sheet version history before removing rows.")
+    # Safe Undo: prepare and verify the exact final ledger row(s) before deletion.
+    # No transaction is removed without a second, explicit confirmation.
+    def _undo_snapshot_digest(all_values):
+        canonical = json.dumps(all_values, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _undo_plan_from_sheet(all_values):
+        if len(all_values) <= 2:  # Header plus at most one transaction.
+            raise ValueError("Undo blocked: too few transactions to safely alter this ledger.")
+
+        def cell(row, index):
+            return str(row[index]).strip() if len(row) > index else ""
+
+        last_type = cell(all_values[-1], 4).upper()
+        previous_type = cell(all_values[-2], 4).upper()
+        if last_type == "SWAP_IN":
+            if previous_type != "SWAP_OUT":
+                raise ValueError("Undo blocked: final SWAP_IN has no matching SWAP_OUT.")
+            sent, received = all_values[-2:]
+            try:
+                # A valid swap is recorded as an adjacent, equal-value OUT + IN pair.
+                matching = (cell(sent, 0) == cell(received, 0)
+                            and float(cell(sent, 2)) < 0 < float(cell(received, 2))
+                            and abs(float(cell(sent, 3)) + float(cell(received, 3))) < .011
+                            and cell(sent, 1).upper() != cell(received, 1).upper()
+                            and all(abs(float(cell(row, 5) or 0)) < .011 for row in [sent, received]))
+            except (ValueError, TypeError):
+                matching = False
+            if not matching:
+                raise ValueError("Undo blocked: SWAP_OUT / SWAP_IN rows do not form a valid pair.")
+            count = 2
+        elif last_type == "SWAP_OUT" or previous_type == "SWAP_OUT":
+            # A broken swap must never be half-deleted, even if its last row isn't tagged.
+            raise ValueError("Undo blocked: incomplete or unexpected swap pair. Inspect Sheet first.")
+        else:
+            count = 1
+
+        # Respect the existing portfolio history safety invariant.
+        remaining_assets = {cell(row, 1).upper() for row in all_values[1:-count]}
+        if not {'BTC', 'ETH', 'SOL'}.issubset(remaining_assets):
+            raise ValueError("Undo blocked: this would remove required BTC, ETH or SOL history.")
+        return {
+            "count": count,
+            "start": len(all_values) - count + 1,  # 1-based Google Sheets row number
+            "end": len(all_values),
+            "digest": _undo_snapshot_digest(all_values),
+            "preview": [list(row) for row in all_values[-count:]],
+        }
+
+    if "_pending_ledger_undo" not in st.session_state:
+        st.session_state["_pending_ledger_undo"] = None
+    undo_notice = st.session_state.pop("_undo_notice", None)
+    if undo_notice:
+        st.sidebar.success(undo_notice)
+
+    pending_undo = st.session_state["_pending_ledger_undo"]
+    if not pending_undo:
+        if st.sidebar.button("Review last entry", key="ledger_undo_review", use_container_width=True):
+            try:
+                live_sheet = get_g_sheet()
+                live_rows = live_sheet.get_all_values()
+                undo_plan = _undo_plan_from_sheet(live_rows)
+                undo_plan["worksheet_id"] = live_sheet.id
+                st.session_state["_pending_ledger_undo"] = undo_plan
+                pending_undo = undo_plan
+            except Exception as exc:
+                st.sidebar.error(f"Undo unavailable: {exc}")
+
+    if pending_undo:
+        st.sidebar.markdown("<div class='exec-small-label'>CONFIRM UNDO</div>", unsafe_allow_html=True)
+        for entry in pending_undo["preview"]:
+            # Show all parts needed to identify the transaction unambiguously.
+            def _undo_cell(i):
+                return html_escape(str(entry[i])) if len(entry) > i else "—"
+            st.sidebar.markdown(
+                "<div class='exec-preview'>"
+                f"<div class='exec-preview-primary'>{_undo_cell(4)} · {_undo_cell(1)}</div>"
+                f"<div class='exec-preview-detail'>{_undo_cell(0)} | Quantity {_undo_cell(2)} | "
+                f"Value {_undo_cell(3)} | USDC flow {_undo_cell(5)}</div>"
+                "</div>", unsafe_allow_html=True,
+            )
+        st.sidebar.caption(
+            "This permanently deletes the last transaction" +
+            ("s (both swap rows)." if pending_undo["count"] == 2 else " row.")
+        )
+        undo_confirm_col, undo_cancel_col = st.sidebar.columns(2)
+        if undo_confirm_col.button("Confirm undo", key="ledger_undo_confirm", use_container_width=True):
+            try:
+                current_sheet = get_g_sheet()
+                current_rows = current_sheet.get_all_values()
+                # A changed tab, new trade, or edited historical row invalidates approval.
+                if (current_sheet.id != pending_undo["worksheet_id"] or
+                        _undo_snapshot_digest(current_rows) != pending_undo["digest"]):
+                    raise ValueError("The Sheet changed since Review. No rows were deleted. Review again.")
+                verified_plan = _undo_plan_from_sheet(current_rows)
+                if (verified_plan["start"] != pending_undo["start"] or
+                        verified_plan["end"] != pending_undo["end"] or
+                        verified_plan["count"] != pending_undo["count"]):
+                    raise ValueError("Undo rows changed. No rows were deleted.")
+                # This is the ONLY destructive operation. Both swap rows are deleted together.
+                current_sheet.delete_rows(verified_plan["start"], verified_plan["end"])
+                st.session_state["_pending_ledger_undo"] = None
+                st.cache_data.clear()
+                st.session_state["_undo_notice"] = (
+                    "Last swap undone (2 entries)." if verified_plan["count"] == 2
+                    else "Last transaction undone."
+                )
+                st.rerun()
+            except Exception as exc:
+                st.session_state["_pending_ledger_undo"] = None
+                st.sidebar.error(f"Undo stopped: {exc}. Check Sheet history before retrying.")
+        if undo_cancel_col.button("Cancel", key="ledger_undo_cancel", use_container_width=True):
+            st.session_state["_pending_ledger_undo"] = None
+            st.rerun()
+
 
 
 # --- TARGET ALLOCATION SETUP ---
