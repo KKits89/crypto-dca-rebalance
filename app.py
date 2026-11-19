@@ -17,7 +17,7 @@ st.set_page_config(layout="wide", page_title="Portfolio Terminal", initial_sideb
 # --- FINTECH DARK PALETTE & MINIMAL TYPOGRAPHY UI ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
     html, body, .stApp {
         background-color: #09090b !important;
@@ -181,58 +181,41 @@ st.markdown("""
     }
     .stNumberInput button {
         background: #171a1f !important;
-        color: #dbe7f3 !important;
-        border-color: #394353 !important;
-        font-family: 'Manrope', 'Inter', sans-serif !important;
-        font-size: 1.05rem !important;
-        font-weight: 800 !important;
-        letter-spacing: 0.01em !important;
+        color: #cbd5e1 !important;
+        border-color: #343d49 !important;
     }
     .stNumberInput button:hover {
-        background: #243041 !important;
+        background: #20262e !important;
         color: #ffffff !important;
-        border-color: #6d84a0 !important;
     }
 
     /* Minus / Plus Quick Action Buttons */
     div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button {
-        height: 40px !important;
-        font-family: 'Manrope', 'Inter', sans-serif !important;
-        font-size: 1.08rem !important;
-        font-weight: 800 !important;
+        height: 38px !important;
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
         padding: 0 !important;
         line-height: 1 !important;
         background-color: #1b2028 !important;
-        border: 1px solid #334155 !important;
-        color: #dbe7f3 !important;
-        border-radius: 10px !important;
+        border: 1px solid #2d333d !important;
+        color: #cbd5e1 !important;
     }
     div[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] button:hover {
         color: #ffffff !important;
-        border-color: #6d84a0 !important;
-        background-color: #263244 !important;
+        border-color: #475569 !important;
+        background-color: #28313d !important;
     }
 
     /* Custom Sliders */
-    div.stSlider > div[data-baseweb="slider"] {
-        padding-top: 0.15rem !important;
-    }
     div.stSlider > div[data-baseweb="slider"] div[role="slider"] {
         width: 18px !important;
         height: 18px !important;
-        background-color: #6d84a0 !important;
-        border: 3px solid #d8e3ee !important;
-        box-shadow: 0 0 0 4px rgba(109,132,160,0.18) !important;
+        background-color: #738ca8 !important;
+        border: 3px solid #dce6f0 !important;
+        box-shadow: 0 0 0 3px rgba(115,140,168,.2) !important;
     }
     div.stSlider > div[data-baseweb="slider"] div > div > div {
-        background-color: #2f3b4b !important;
-    }
-    div.stSlider [data-testid="stThumbValue"],
-    div.stSlider [data-testid="stSliderTickBarMin"],
-    div.stSlider p {
-        color: #8ea6c1 !important;
-        font-family: 'Inter', sans-serif !important;
-        font-weight: 700 !important;
+        background-color: #3f3f46 !important;
     }
     
     /* Multiselect tags - suppress Streamlit theme red completely */
@@ -533,6 +516,36 @@ st.markdown("""
         font-variant-numeric:tabular-nums;
     }
 
+
+    /* DCA buy preview: no monospace, no red, deliberate small table. */
+    .dca-plan-caption {
+        color:#9faebd;font-size:0.72rem;font-weight:500;
+        margin:0 0 10px;font-family:Inter,system-ui,sans-serif;
+    }
+    .dca-plan-head,.dca-plan-row,.dca-plan-total {
+        display:grid;grid-template-columns:1fr 1fr 1fr;
+        align-items:center;gap:7px;padding:7px 2px;
+        font-family:Inter,system-ui,sans-serif;font-feature-settings:"zero" 0;
+    }
+    .dca-plan-head {
+        color:#8999ab;font-size:0.64rem;font-weight:700;
+        letter-spacing:.045em;border-bottom:1px solid #303946;
+    }
+    .dca-plan-row {
+        color:#e5edf5;font-size:0.81rem;font-weight:550;
+        border-bottom:1px solid #242b33;
+        font-variant-numeric:tabular-nums;
+    }
+    .dca-plan-row span:first-child {font-weight:700;}
+    .dca-plan-head span:not(:first-child),
+    .dca-plan-row span:not(:first-child),
+    .dca-plan-total span:not(:first-child) {text-align:right;}
+    .dca-plan-total {
+        color:#dce8f5;font-size:0.81rem;font-weight:750;
+        font-variant-numeric:tabular-nums;
+        border-top:1px solid #46576a;margin-top:5px;
+    }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -543,38 +556,78 @@ st.markdown("## Portfolio Terminal")
 
 # --- GOOGLE SHEETS & CACHED API HELPERS ---
 def get_g_sheet():
+    """Locate the actual transaction ledger by headers, NEVER by tab position.
+
+    ``.sheet1`` may point at Settings (or another worksheet) after a tab reorder.
+    Trading against a wrong worksheet is unsafe, so fail closed if ambiguous.
+    """
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_dict = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
-    sheet = client.open("CryptoPortfolio").sheet1 
-    return sheet
+    spreadsheet = client.open("CryptoPortfolio")
+
+    def normalize_header(value):
+        return str(value).strip().casefold().replace(" ", "").replace("_", "")
+
+    matches = []
+    for ws in spreadsheet.worksheets():
+        first_row = [normalize_header(h) for h in ws.row_values(1)]
+        if len(first_row) >= 4 and first_row[:3] == ["date", "asset", "amount"] and first_row[3] in {"usdcost", "cost"}:
+            matches.append(ws)
+    if len(matches) != 1:
+        raise RuntimeError(
+            "Cannot safely identify the transaction worksheet in CryptoPortfolio "
+            f"({len(matches)} matching tabs). No data will be changed. "
+            "Expected the first four headers: Date | Asset | Amount | USD_Cost."
+        )
+    return matches[0]
 
 @st.cache_data(ttl=15)
 def load_transactions_from_sheet():
+    """Read-only load. An empty/error ledger must NEVER be treated as a fresh ledger."""
     try:
         sheet = get_g_sheet()
         data_rows = sheet.get_all_records()
-        
         if not data_rows:
-            sheet.append_row(["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"])
-            return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"])
-            
+            raise RuntimeError(
+                "The transaction ledger has no data rows. STOP: check Google Sheets "
+                "version history before entering transactions."
+            )
         df = pd.DataFrame(data_rows)
         df.columns = [str(col).strip().capitalize() for col in df.columns]
         if 'Usd_cost' in df.columns and 'USD_Cost' not in df.columns:
             df.rename(columns={'Usd_cost': 'USD_Cost'}, inplace=True)
-            
+        if not {'Date', 'Asset', 'Amount', 'USD_Cost'}.issubset(df.columns):
+            raise RuntimeError(f"Transaction sheet has invalid columns: {list(df.columns)}")
+        if not df['Asset'].astype(str).str.strip().replace('', pd.NA).notna().any():
+            raise RuntimeError("Transaction ledger contains no asset entries.")
+
+        # Temporary safety guard for this portfolio's known historical holdings.
+        # Even if BTC, ETH and SOL were sold, their old BUY/SELL rows MUST still
+        # be present. If they vanish, stop rather than silently reading a wrong
+        # worksheet or an incomplete transaction history.
+        historical_assets = {'BTC', 'ETH', 'SOL'}
+        seen_assets = {str(x).upper().strip() for x in df['Asset'].dropna()}
+        missing_history = historical_assets - seen_assets
+        if missing_history:
+            raise RuntimeError(
+                "Historical transaction safety check failed: the ledger is missing "
+                f"{', '.join(sorted(missing_history))}. STOP trading. "
+                "Check the worksheet tabs and Google Sheets version history."
+            )
+
         for col in ['Amount', 'USD_Cost', 'USDC_Flow']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
-            elif col.lower() in df.columns:
-                df[col.lower()] = pd.to_numeric(df[col.lower()].astype(str).str.replace(',', ''), errors='coerce').fillna(0.0)
-                
+            for matched_col in [c for c in df.columns if c.casefold() == col.casefold()]:
+                df[matched_col] = pd.to_numeric(
+                    df[matched_col].astype(str).str.replace(',', '', regex=False),
+                    errors='coerce'
+                ).fillna(0.0)
         return df
     except Exception as e:
-        st.error(f"Google Sheet Connection Error: {e}")
-        return pd.DataFrame(columns=["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"])
+        st.error(f"Ledger safety stop — nothing has been written: {e}")
+        st.stop()
+        raise  # For type-checkers; Streamlit stop terminates execution.
 
 @st.cache_data(ttl=60)
 def get_cmc_market_data(symbols_list):
@@ -742,7 +795,10 @@ def ensure_transaction_ledger_headers(sheet):
     headers = sheet.row_values(1)
     required = ["Date", "Asset", "Amount", "USD_Cost", "Transaction Type", "USDC_Flow"]
     for idx, header in enumerate(required, start=1):
-        if len(headers) < idx or not str(headers[idx - 1]).strip():
+        present = str(headers[idx - 1]).strip() if len(headers) >= idx else ""
+        if present and present.casefold().replace(' ', '').replace('_', '') != header.casefold().replace(' ', '').replace('_', ''):
+            raise RuntimeError(f"Unsafe header mismatch in column {idx}: {present!r} != {header!r}")
+        if not present:
             sheet.update_cell(1, idx, header)
     return required
 
@@ -906,7 +962,10 @@ def _execution_preview(main_text, detail_text):
 
 
 st.sidebar.markdown("### DCA Planning")
-new_cash_to_invest = st.sidebar.number_input("Cash to Invest ($)", value=0.0, step=10.0, key="execution_dca_cash")
+new_cash_to_invest = st.sidebar.number_input("Cash to Invest ($)", min_value=0.0, value=0.0, step=10.0, key="execution_dca_cash")
+# Reserve this location at the TOP of the sidebar.  Actual allocation is calculated
+# below, after saved Automatic / Custom weights have been loaded.
+dca_preview_slot = st.sidebar.container()
 st.sidebar.markdown("---")
 
 st.sidebar.markdown("### Execution")
@@ -1153,25 +1212,8 @@ if not raw_df_initial.empty:
         unsafe_allow_html=True
     )
     
-    if st.sidebar.button("Undo last entry", use_container_width=True):
-        try:
-            sheet = get_g_sheet()
-            all_values = sheet.get_all_values()
-            if len(all_values) > 1:
-                last_row_num = len(all_values)
-                last_type = str(all_values[-1][4]).strip().upper() if len(all_values[-1]) > 4 else ""
-                previous_type = str(all_values[-2][4]).strip().upper() if len(all_values[-2]) > 4 else ""
-                if last_type == "SWAP_IN" and previous_type == "SWAP_OUT":
-                    sheet.delete_rows(last_row_num - 1, last_row_num)
-                    message = "Last swap removed (both rows)."
-                else:
-                    sheet.delete_rows(last_row_num)
-                    message = "Last entry removed."
-                st.cache_data.clear()
-                st.sidebar.success(message)
-                st.rerun()
-        except Exception as e:
-            st.sidebar.error(f"Error: {e}")
+    st.sidebar.caption("Undo temporarily disabled for ledger safety. Check Sheet version history before removing rows.")
+
 
 # --- TARGET ALLOCATION SETUP ---
 st.sidebar.markdown("---")
@@ -1187,14 +1229,14 @@ def _inject_selected_button_css(selected_keys, prefix):
         css_key = _safe_widget_key(raw_key)
         selected_rules.append(f"""
         .st-key-{prefix}_{css_key} button {{
-            background: #2c3847 !important;
-            border-color: #7287a0 !important;
+            background: #27313c !important;
+            border-color: #526274 !important;
             color: #f8fafc !important;
-            box-shadow: inset 0 0 0 1px rgba(226,232,240,0.07) !important;
+            box-shadow: inset 0 0 0 1px rgba(148,163,184,0.05) !important;
         }}
         .st-key-{prefix}_{css_key} button:hover {{
-            background: #344254 !important;
-            border-color: #869cb6 !important;
+            background: #303c49 !important;
+            border-color: #64748b !important;
         }}
         """)
     st.markdown(
@@ -1511,31 +1553,102 @@ total_pnl_pct = (
     if total_gross_invested > 0 else 0.0
 )
 
-# DCA Allocations Logic
-strict_allocations = {}
-for asset, data in portfolio_data.items():
-    if data["amount"] <= 1e-4 or not data["is_dca"] or asset not in current_values:
-        continue
-    cur_val = current_values[asset]["current_val"]
-    ideal_val = new_total_portfolio * data["target_pct"]
-    strict_allocations[asset] = max(0, ideal_val - cur_val)
+# DCA planning is READ ONLY. It never creates transactions or changes USDC balance.
+# Calculate only after saved Allocation Mode and weights have been loaded.
+def build_dca_plan(cash, selected_assets, weights, portfolio, live_stats,
+                   portfolio_value, mode):
+    """Return (strict, smart, error), with both plans totalling the cash budget.
 
-total_strict_weight = sum(strict_allocations.values()) or 1.0
+    Include selected assets with zero current holdings (e.g. newly closed coin).
+    Missing price data merely uses a neutral Smart score, and never conceals
+    a selected asset from the purchase-dollar planning preview.
+    """
+    if cash <= 0:
+        return {}, {}, None
+    assets = [a for a in selected_assets if a in portfolio]
+    if not assets:
+        return {}, {}, "Select at least one asset in Target Allocation."
 
-smart_allocations = {}
-total_smart_weight = 0
-for asset, data in portfolio_data.items():
-    if data["amount"] <= 1e-4 or not data["is_dca"] or asset not in current_values:
-        continue
-    cur_val = current_values[asset]["current_val"]
-    ideal_val = new_total_portfolio * data["target_pct"]
-    base_need = max(0, ideal_val - cur_val)
-    score = current_values[asset]["score"]
-    smart_weight = base_need * max(0.1, score / 50.0)
-    smart_allocations[asset] = smart_weight
-    total_smart_weight += smart_weight
+    total_pct = sum(max(0.0, float(weights.get(a, 0.0))) for a in assets)
+    if total_pct <= 0.0:
+        return {}, {}, "Allocation weights are zero. Select Automatic or set Custom weights."
+    if mode == "custom" and abs(total_pct - 100.0) > 0.25:
+        return {}, {}, (
+            f"Custom allocation totals {total_pct:.1f}%, not 100%. "
+            "Adjust and save the weights before using the DCA plan."
+        )
 
-total_smart_weight = total_smart_weight or 1.0
+    normalized = {a: max(0.0, float(weights.get(a, 0.0))) / total_pct for a in assets}
+    # This is PLANNED new cash, not existing USDC holdings.
+    post_buy_value = portfolio_value + cash
+    deficits = {
+        a: max(0.0, post_buy_value * normalized[a] -
+               float(live_stats.get(a, {}).get("current_val", 0.0)))
+        for a in assets
+    }
+
+    # When selected targets are already above their weight (because other,
+    # non-DCA positions exist), a proportional plan is still useful rather
+    # than returning $0 for every selected asset.
+    if sum(deficits.values()) <= 1e-12:
+        deficits = normalized.copy()
+
+    smart_weights = {
+        a: deficits[a] * max(0.1, float(live_stats.get(a, {}).get("score", 50.0)) / 50.0)
+        for a in assets
+    }
+
+    def split_into_cents(weight_map):
+        total = sum(weight_map.values())
+        if total <= 0:
+            return {a: 0.0 for a in assets}
+        budget_cents = int(round(cash * 100))
+        exact_cents = {a: budget_cents * weight_map[a] / total for a in assets}
+        floor_cents = {a: int(exact_cents[a]) for a in assets}
+        remainder = budget_cents - sum(floor_cents.values())
+        ranked = sorted(assets, key=lambda a: exact_cents[a] - floor_cents[a], reverse=True)
+        for a in ranked[:remainder]:
+            floor_cents[a] += 1
+        return {a: floor_cents[a] / 100.0 for a in assets}
+
+    return split_into_cents(deficits), split_into_cents(smart_weights), None
+
+strict_allocations, smart_allocations, dca_plan_error = build_dca_plan(
+    new_cash_to_invest, active_dca_assets, target_weights,
+    portfolio_data, current_values, total_current_portfolio, current_mode,
+)
+
+with dca_preview_slot:
+    if new_cash_to_invest > 0:
+        with st.expander(f"DCA Buy Plan · ${new_cash_to_invest:,.2f}", expanded=True):
+            if dca_plan_error:
+                st.warning(dca_plan_error)
+            else:
+                dca_html = [
+                    "<div class='dca-plan-caption'>"
+                    f"{html_escape(current_mode.title())} allocation · dollars to buy, no trade recorded"
+                    "</div>",
+                    "<div class='dca-plan-head'><span>ASSET</span>"
+                    "<span>STRICT</span><span>SMART</span></div>",
+                ]
+                for dca_asset in active_dca_assets:
+                    if dca_asset not in strict_allocations:
+                        continue
+                    dca_html.append(
+                        "<div class='dca-plan-row'>"
+                        f"<span>{html_escape(dca_asset)}</span>"
+                        f"<span>${strict_allocations[dca_asset]:,.2f}</span>"
+                        f"<span>${smart_allocations[dca_asset]:,.2f}</span>"
+                        "</div>"
+                    )
+                dca_html.append(
+                    "<div class='dca-plan-total'>"
+                    "<span>TOTAL</span>"
+                    f"<span>${sum(strict_allocations.values()):,.2f}</span>"
+                    f"<span>${sum(smart_allocations.values()):,.2f}</span>"
+                    "</div>"
+                )
+                st.markdown("".join(dca_html), unsafe_allow_html=True)
 
 # --- MAIN NAVIGATION TABS ---
 tab1, tab2, tab6, tab3, tab4, tab5 = st.tabs([
@@ -1566,8 +1679,8 @@ with tab1:
         stats = current_values[asset]
         
         if data["is_dca"]:
-            strict_buy = new_cash_to_invest * (strict_allocations.get(asset, 0) / total_strict_weight)
-            smart_buy = new_cash_to_invest * (smart_allocations.get(asset, 0) / total_smart_weight)
+            strict_buy = strict_allocations.get(asset, 0.0)
+            smart_buy = smart_allocations.get(asset, 0.0)
             new_avg = calculate_new_avg(data['total_cost'], data['amount'], smart_buy, stats['price'])
             strict_str = f"${strict_buy:.2f}"
             smart_str = f"${smart_buy:.2f}"
@@ -1618,18 +1731,20 @@ with tab1:
             return 'color: #ef4444; font-weight: 600'
         return ''
 
-    styled_metrics = df_metrics.style.map(
-        _pnl_style, subset=["Unrealized PnL", "Realized PnL", "Lifetime Return"]
-    )
-
-    st.dataframe(
-        styled_metrics,
-        width='stretch',
-        column_config={
-            "Coin": st.column_config.LinkColumn("Coin Link", display_text=r"https://coinmarketcap.com/currencies/(.*?)/"),
-            "Asset": None
-        }
-    )
+    if df_metrics.empty:
+        st.warning("No open positions are currently visible in the ledger. Check the original transactions in Google Sheets before entering new trades.")
+    else:
+        styled_metrics = df_metrics.style.map(
+            _pnl_style, subset=["Unrealized PnL", "Realized PnL", "Lifetime Return"]
+        )
+        st.dataframe(
+            styled_metrics,
+            width='stretch',
+            column_config={
+                "Coin": st.column_config.LinkColumn("Coin Link", display_text=r"https://coinmarketcap.com/currencies/(.*?)/"),
+                "Asset": None
+            }
+        )
 
     # Keep fully sold assets visible as closed positions instead of making them disappear.
     closed_rows = []
